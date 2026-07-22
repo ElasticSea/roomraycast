@@ -23,6 +23,32 @@ enum RayTracingSceneBuildState: Sendable, Equatable {
     case failed(String)
 }
 
+enum RayTracingSceneEvent: Hashable, Sendable {
+    case geometryChanged(RayTracingGeometryID)
+    case transformChanged(RayTracingInstanceID)
+    case instanceAdded(RayTracingInstanceID)
+    case instanceRemoved(RayTracingInstanceID)
+    case materialChanged(RayTracingInstanceID)
+}
+
+struct RayTracingRebuildPlan: Sendable, Equatable {
+    var bottomLevelGeometry: Set<RayTracingGeometryID> = []
+    var transformedInstances: Set<RayTracingInstanceID> = []
+    var addedInstances: Set<RayTracingInstanceID> = []
+    var removedInstances: Set<RayTracingInstanceID> = []
+    var changedMaterials: Set<RayTracingInstanceID> = []
+    var rebuildTopLevel = false
+    var refitTopLevel = false
+
+    var hasWork: Bool {
+        !bottomLevelGeometry.isEmpty
+            || !transformedInstances.isEmpty
+            || !addedInstances.isEmpty
+            || !removedInstances.isEmpty
+            || !changedMaterials.isEmpty
+    }
+}
+
 final class RayTracingScene: @unchecked Sendable {
     let device: MTLDevice
 
@@ -33,6 +59,7 @@ final class RayTracingScene: @unchecked Sendable {
     private(set) var geometryBuffers: [RayTracingGeometryID: [MTLBuffer]] = [:]
     private(set) var textures: [MTLTexture] = []
     private(set) var buildState = RayTracingSceneBuildState.idle
+    private var pendingEvents: Set<RayTracingSceneEvent> = []
 
     init(device: MTLDevice) {
         self.device = device
@@ -61,5 +88,50 @@ final class RayTracingScene: @unchecked Sendable {
 
     func setBuildState(_ state: RayTracingSceneBuildState) {
         buildState = state
+    }
+
+    func markDirty(_ event: RayTracingSceneEvent) {
+        pendingEvents.insert(event)
+        buildState = .dirty
+    }
+
+    func consumeRebuildPlan() -> RayTracingRebuildPlan? {
+        guard !pendingEvents.isEmpty else { return nil }
+
+        var plan = RayTracingRebuildPlan()
+        for event in pendingEvents {
+            switch event {
+            case .geometryChanged(let geometryID):
+                plan.bottomLevelGeometry.insert(geometryID)
+                plan.rebuildTopLevel = true
+            case .transformChanged(let instanceID):
+                plan.transformedInstances.insert(instanceID)
+                plan.refitTopLevel = true
+            case .instanceAdded(let instanceID):
+                plan.addedInstances.insert(instanceID)
+                plan.rebuildTopLevel = true
+            case .instanceRemoved(let instanceID):
+                plan.removedInstances.insert(instanceID)
+                plan.rebuildTopLevel = true
+            case .materialChanged(let instanceID):
+                plan.changedMaterials.insert(instanceID)
+            }
+        }
+
+        if plan.rebuildTopLevel {
+            plan.refitTopLevel = false
+        }
+
+        pendingEvents.removeAll(keepingCapacity: true)
+        buildState = .building
+        return plan
+    }
+
+    func finishBuild() {
+        buildState = pendingEvents.isEmpty ? .ready : .dirty
+    }
+
+    func failBuild(_ error: any Error) {
+        buildState = .failed(error.localizedDescription)
     }
 }

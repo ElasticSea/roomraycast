@@ -149,7 +149,7 @@ actor Renderer {
         let argTableDesc = MTL4ArgumentTableDescriptor()
         argTableDesc.maxBufferBindCount = 4
         self.vertexArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
-        argTableDesc.maxBufferBindCount = BufferIndex.rayTracingInstances.rawValue + 1
+        argTableDesc.maxBufferBindCount = BufferIndex.rayTracingObjects.rawValue + 1
         argTableDesc.maxTextureBindCount = TextureIndex.rayTracingBase.rawValue + maxRayTracingTextures
         self.fragmentArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
 
@@ -272,7 +272,7 @@ actor Renderer {
             + modelTextures.count
             + sphereVertexBuffers.count
             + sphereIndexBuffers.count
-            + 7
+            + 8
         let residencySet = try! self.device.makeResidencySet(descriptor: residencySetDesc)
         residencySet.addAllocations(vertexBuffers)
         residencySet.addAllocations(indexBuffers)
@@ -286,7 +286,8 @@ actor Renderer {
             rayTracingHitDataBuffers.vertices,
             rayTracingHitDataBuffers.indices,
             rayTracingHitDataBuffers.geometries,
-            rayTracingHitDataBuffers.instances
+            rayTracingHitDataBuffers.instances,
+            rayTracingHitDataBuffers.objects
         ])
         residencySet.commit()
         commandQueueResidencySet = residencySet
@@ -583,6 +584,9 @@ actor Renderer {
             if roomTransformChanged {
                 let instanceID = RayTracingInstanceID.roomMesh(meshIndex)
                 rayTracingScene.setInstanceTransform(pointer[0].modelMatrix, for: instanceID)
+                rayTracingHitDataBuffers.setObjectTransform(pointer[0].modelMatrix,
+                                                            sphereRadius: 0,
+                                                            at: meshIndex)
                 rayTracingScene.markDirty(.transformChanged(instanceID))
             }
         }
@@ -727,6 +731,9 @@ actor Renderer {
         if (didPlaceSphere || didMoveSphere),
            let sphereTransform = reflectiveSphere.originFromSphereTransform {
             rayTracingScene.setInstanceTransform(sphereTransform, for: .reflectiveSphere)
+            rayTracingHitDataBuffers.setObjectTransform(sphereTransform,
+                                                        sphereRadius: ReflectiveSphere.radius,
+                                                        at: meshes.count)
             rayTracingScene.markDirty(.transformChanged(.reflectiveSphere))
         }
 
@@ -933,6 +940,8 @@ actor Renderer {
                                          index: BufferIndex.rayTracingGeometries.rawValue)
         fragmentArgumentTable.setAddress(hitData.instances.gpuAddress,
                                          index: BufferIndex.rayTracingInstances.rawValue)
+        fragmentArgumentTable.setAddress(hitData.objects.gpuAddress,
+                                         index: BufferIndex.rayTracingObjects.rawValue)
 
         for (textureOffset, texture) in rayTracingScene.textures
             .prefix(maxRayTracingTextures).enumerated() {

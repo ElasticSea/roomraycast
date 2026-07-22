@@ -28,6 +28,12 @@ struct RayTracingInstanceMetadata {
     var padding: UInt32 = 0
 }
 
+struct RayTracingObjectMetadata {
+    var objectToWorld: matrix_float4x4
+    var worldToObject: matrix_float4x4
+    var sphereCenterAndRadius: SIMD4<Float>
+}
+
 struct RayTracingCPUHitData {
     var vertices: [RayTracingPackedVertex]
     var indices: [UInt32]
@@ -129,22 +135,43 @@ final class RayTracingHitDataBuffers: @unchecked Sendable {
     let indices: MTLBuffer
     let geometries: MTLBuffer
     let instances: MTLBuffer
+    let objects: MTLBuffer
 
     init(device: MTLDevice, data: RayTracingCPUHitData) throws {
         guard let vertices = Self.makeBuffer(device: device, values: data.vertices),
               let indices = Self.makeBuffer(device: device, values: data.indices),
               let geometries = Self.makeBuffer(device: device, values: data.geometries),
-              let instances = Self.makeBuffer(device: device, values: data.instances) else {
+              let instances = Self.makeBuffer(device: device, values: data.instances),
+              let objects = device.makeBuffer(
+                length: MemoryLayout<RayTracingObjectMetadata>.stride * data.instances.count,
+                options: .storageModeShared) else {
             throw RayTracingAccelerationBuilderError.allocationFailed
         }
         self.vertices = vertices
         self.indices = indices
         self.geometries = geometries
         self.instances = instances
+        self.objects = objects
         vertices.label = "Ray Hit Vertices"
         indices.label = "Ray Hit Indices"
         geometries.label = "Ray Hit Geometry Metadata"
         instances.label = "Ray Hit Instance Metadata"
+        objects.label = "Ray Hit Object Transforms"
+    }
+
+    func setObjectTransform(_ transform: matrix_float4x4,
+                            sphereRadius: Float,
+                            at index: Int) {
+        let pointer = objects.contents()
+            .bindMemory(to: RayTracingObjectMetadata.self,
+                        capacity: objects.length / MemoryLayout<RayTracingObjectMetadata>.stride)
+        pointer[index] = RayTracingObjectMetadata(
+            objectToWorld: transform,
+            worldToObject: transform.inverse,
+            sphereCenterAndRadius: SIMD4<Float>(transform.columns.3.x,
+                                                 transform.columns.3.y,
+                                                 transform.columns.3.z,
+                                                 sphereRadius))
     }
 
     private static func makeBuffer<T>(device: MTLDevice, values: [T]) -> MTLBuffer? {

@@ -63,6 +63,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
     device const uint32_t *indices [[buffer(BufferIndexRayTracingIndices)]],
     device const RayTracingGeometry *geometries [[buffer(BufferIndexRayTracingGeometries)]],
     device const RayTracingInstance *instances [[buffer(BufferIndexRayTracingInstances)]],
+    device const RayTracingObject *objects [[buffer(BufferIndexRayTracingObjects)]],
     array<texture2d<half>, 64> roomTextures [[texture(TextureIndexRayTracingBase)]])
 {
     float3 normal = normalize(in.worldNormal);
@@ -76,9 +77,18 @@ fragment float4 rayTracedReflectiveSphereFragment(
 
     intersector<triangle_data, instancing> sceneIntersector;
     sceneIntersector.assume_geometry_type(geometry_type::triangle);
-    auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
+    constexpr sampler roomSampler(mip_filter::linear,
+                                  mag_filter::linear,
+                                  min_filter::linear,
+                                  address::repeat);
+    float3 throughput = float3(material.reflectivity);
 
-    if (intersection.type == intersection_type::triangle) {
+    for (uint bounce = 0; bounce < 3; ++bounce) {
+        auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
+        if (intersection.type != intersection_type::triangle) {
+            return float4(throughput * float3(0.025, 0.035, 0.055), 1.0);
+        }
+
         uint instanceIndex = intersection.instance_id;
         RayTracingInstance hitInstance = instances[instanceIndex];
         if (hitInstance.materialKind == RayTracingMaterialKindRoom) {
@@ -96,17 +106,22 @@ fragment float4 rayTracedReflectiveSphereFragment(
             float2 uv2 = vertices[vertexIndex2].texCoordAndPadding.xy;
             float2 uv = uv0 * weight0 + uv1 * barycentric.x + uv2 * barycentric.y;
 
-            constexpr sampler roomSampler(mip_filter::linear,
-                                          mag_filter::linear,
-                                          min_filter::linear,
-                                          address::repeat);
             half4 roomColor = roomTextures[min(geometry.textureIndex, 63u)]
                 .sample(roomSampler, uv);
-            return float4(roomColor) * material.reflectivity;
+            return float4(float3(roomColor.rgb) * throughput, 1.0);
         }
 
-        return float4(0.75, 0.86, 1.0, 1.0) * material.reflectivity;
+        RayTracingObject hitObject = objects[instanceIndex];
+        float3 hitPosition = reflectionRay.origin
+            + reflectionRay.direction * intersection.distance;
+        float3 hitNormal = normalize(hitPosition - hitObject.sphereCenterAndRadius.xyz);
+        if (dot(hitNormal, reflectionRay.direction) > 0.0) {
+            hitNormal = -hitNormal;
+        }
+        reflectionRay.origin = hitPosition + hitNormal * 0.002;
+        reflectionRay.direction = normalize(reflect(reflectionRay.direction, hitNormal));
+        throughput *= material.reflectivity;
     }
 
-    return float4(0.025, 0.035, 0.055, 1.0);
+    return float4(throughput * float3(0.75, 0.86, 1.0), 1.0);
 }

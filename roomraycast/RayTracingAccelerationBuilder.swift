@@ -97,19 +97,24 @@ final class RayTracingAccelerationBuilder {
     func buildBottomLevelStructures(
         for sources: [RayTracingTriangleGeometrySource]
     ) async throws -> [RayTracingGeometryID: MTLAccelerationStructure] {
+        guard !sources.isEmpty else { return [:] }
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             throw RayTracingAccelerationBuilderError.commandBufferUnavailable
         }
-        guard let encoder = commandBuffer.makeAccelerationStructureCommandEncoder() else {
+        guard let encoder = commandBuffer.makeAccelerationStructureCommandEncoder(),
+              let compactedSizeBuffer = device.makeBuffer(
+                length: MemoryLayout<UInt32>.stride * sources.count,
+                options: .storageModeShared) else {
             throw RayTracingAccelerationBuilderError.commandEncoderUnavailable
         }
 
         commandBuffer.label = "Build Ray Tracing BLAS"
         encoder.label = "Build Static Triangle BLAS"
-        var structures: [RayTracingGeometryID: MTLAccelerationStructure] = [:]
+        compactedSizeBuffer.label = "BLAS Compacted Sizes"
+        var uncompressedStructures: [(RayTracingGeometryID, MTLAccelerationStructure)] = []
         var scratchBuffers: [MTLBuffer] = []
 
-        for source in sources {
+        for (sourceIndex, source) in sources.enumerated() {
             let geometryDescriptors = source.submeshes.map { submesh in
                 let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
                 geometry.vertexBuffer = source.vertexBuffer
@@ -139,7 +144,10 @@ final class RayTracingAccelerationBuilder {
                           descriptor: descriptor,
                           scratchBuffer: scratchBuffer,
                           scratchBufferOffset: 0)
-            structures[source.id] = structure
+            encoder.writeCompactedSize(accelerationStructure: structure,
+                                       buffer: compactedSizeBuffer,
+                                       offset: sourceIndex * MemoryLayout<UInt32>.stride)
+            uncompressedStructures.append((source.id, structure))
             scratchBuffers.append(scratchBuffer)
         }
 
@@ -152,53 +160,50 @@ final class RayTracingAccelerationBuilder {
                 commandBuffer.error?.localizedDescription ?? "Unknown Metal error")
         }
         _ = scratchBuffers
-        return structures
+
+        guard let compactCommandBuffer = commandQueue.makeCommandBuffer(),
+              let compactEncoder = compactCommandBuffer
+                .makeAccelerationStructureCommandEncoder() else {
+            throw RayTracingAccelerationBuilderError.commandBufferUnavailable
+        }
+
+        compactCommandBuffer.label = "Compact Ray Tracing BLAS"
+        compactEncoder.label = "Compact Static Triangle BLAS"
+        let compactedSizes = compactedSizeBuffer.contents()
+            .bindMemory(to: UInt32.self, capacity: sources.count)
+        var compactedStructures: [RayTracingGeometryID: MTLAccelerationStructure] = [:]
+
+        for (index, uncompressed) in uncompressedStructures.enumerated() {
+            let compactedSize = Int(compactedSizes[index])
+            guard compactedSize > 0,
+                  let compacted = device.makeAccelerationStructure(size: compactedSize) else {
+                throw RayTracingAccelerationBuilderError.allocationFailed
+            }
+            compacted.label = "Compacted BLAS \(uncompressed.0)"
+            compactEncoder.copyAndCompact(
+                sourceAccelerationStructure: uncompressed.1,
+                destinationAccelerationStructure: compacted)
+            compactedStructures[uncompressed.0] = compacted
+        }
+
+        compactEncoder.endEncoding()
+        compactCommandBuffer.commit()
+        await compactCommandBuffer.completed()
+
+        if compactCommandBuffer.status == .error {
+            throw RayTracingAccelerationBuilderError.commandFailed(
+                compactCommandBuffer.error?.localizedDescription ?? "Unknown Metal error")
+        }
+        return compactedStructures
     }
 
     func buildTopLevelStructure(
         instances: [RayTracingInstanceSource],
         bottomLevelStructures: [RayTracingGeometryID: MTLAccelerationStructure]
     ) async throws -> RayTracingTopLevelBuild {
-        guard !instances.isEmpty else {
-            throw RayTracingAccelerationBuilderError.invalidMesh
-        }
-
-        let instanceStride = MemoryLayout<MTLAccelerationStructureUserIDInstanceDescriptor>.stride
-        guard let instanceBuffer = device.makeBuffer(length: instanceStride * instances.count,
-                                                     options: .storageModeShared) else {
-            throw RayTracingAccelerationBuilderError.allocationFailed
-        }
-        instanceBuffer.label = "Ray Tracing TLAS Instances"
-
-        var orderedStructures: [MTLAccelerationStructure] = []
-        let descriptors = instanceBuffer.contents()
-            .bindMemory(to: MTLAccelerationStructureUserIDInstanceDescriptor.self,
-                        capacity: instances.count)
-
-        for (index, instance) in instances.enumerated() {
-            guard let structure = bottomLevelStructures[instance.geometryID] else {
-                throw RayTracingAccelerationBuilderError.invalidMesh
-            }
-            orderedStructures.append(structure)
-
-            var descriptor = MTLAccelerationStructureUserIDInstanceDescriptor()
-            descriptor.transformationMatrix = packedTransform(instance.transform)
-            descriptor.options = [.opaque]
-            descriptor.mask = instance.mask
-            descriptor.intersectionFunctionTableOffset = 0
-            descriptor.accelerationStructureIndex = UInt32(index)
-            descriptor.userID = UInt32(index)
-            descriptors[index] = descriptor
-        }
-
-        let descriptor = MTLInstanceAccelerationStructureDescriptor()
-        descriptor.instanceDescriptorBuffer = instanceBuffer
-        descriptor.instanceDescriptorBufferOffset = 0
-        descriptor.instanceDescriptorStride = instanceStride
-        descriptor.instanceCount = instances.count
-        descriptor.instancedAccelerationStructures = orderedStructures
-        descriptor.instanceDescriptorType = .userID
-        descriptor.usage = [.refit, .preferFastIntersection]
+        let (descriptor, instanceBuffer) = try makeTopLevelDescriptor(
+            instances: instances,
+            bottomLevelStructures: bottomLevelStructures)
 
         let sizes = device.accelerationStructureSizes(descriptor: descriptor)
         guard let structure = device.makeAccelerationStructure(size: sizes.accelerationStructureSize),
@@ -225,6 +230,89 @@ final class RayTracingAccelerationBuilder {
         }
         return RayTracingTopLevelBuild(structure: structure,
                                        instanceBuffer: instanceBuffer)
+    }
+
+    func refitTopLevelStructure(
+        _ structure: MTLAccelerationStructure,
+        instances: [RayTracingInstanceSource],
+        bottomLevelStructures: [RayTracingGeometryID: MTLAccelerationStructure]
+    ) async throws -> RayTracingTopLevelBuild {
+        let (descriptor, instanceBuffer) = try makeTopLevelDescriptor(
+            instances: instances,
+            bottomLevelStructures: bottomLevelStructures)
+        let sizes = device.accelerationStructureSizes(descriptor: descriptor)
+        guard let scratchBuffer = device.makeBuffer(
+                length: max(sizes.refitScratchBufferSize, 1),
+                options: .storageModePrivate),
+              let commandBuffer = commandQueue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeAccelerationStructureCommandEncoder() else {
+            throw RayTracingAccelerationBuilderError.allocationFailed
+        }
+
+        commandBuffer.label = "Refit Ray Tracing TLAS"
+        encoder.label = "Refit Scene Instance Transforms"
+        encoder.refit(sourceAccelerationStructure: structure,
+                      descriptor: descriptor,
+                      destinationAccelerationStructure: nil,
+                      scratchBuffer: scratchBuffer,
+                      scratchBufferOffset: 0)
+        encoder.endEncoding()
+        commandBuffer.commit()
+        await commandBuffer.completed()
+
+        if commandBuffer.status == .error {
+            throw RayTracingAccelerationBuilderError.commandFailed(
+                commandBuffer.error?.localizedDescription ?? "Unknown Metal error")
+        }
+        return RayTracingTopLevelBuild(structure: structure,
+                                       instanceBuffer: instanceBuffer)
+    }
+
+    private func makeTopLevelDescriptor(
+        instances: [RayTracingInstanceSource],
+        bottomLevelStructures: [RayTracingGeometryID: MTLAccelerationStructure]
+    ) throws -> (MTLInstanceAccelerationStructureDescriptor, MTLBuffer) {
+        guard !instances.isEmpty else {
+            throw RayTracingAccelerationBuilderError.invalidMesh
+        }
+
+        let instanceStride = MemoryLayout<MTLAccelerationStructureUserIDInstanceDescriptor>.stride
+        guard let instanceBuffer = device.makeBuffer(length: instanceStride * instances.count,
+                                                     options: .storageModeShared) else {
+            throw RayTracingAccelerationBuilderError.allocationFailed
+        }
+        instanceBuffer.label = "Ray Tracing TLAS Instances"
+
+        var orderedStructures: [MTLAccelerationStructure] = []
+        let instanceDescriptors = instanceBuffer.contents()
+            .bindMemory(to: MTLAccelerationStructureUserIDInstanceDescriptor.self,
+                        capacity: instances.count)
+
+        for (index, instance) in instances.enumerated() {
+            guard let structure = bottomLevelStructures[instance.geometryID] else {
+                throw RayTracingAccelerationBuilderError.invalidMesh
+            }
+            orderedStructures.append(structure)
+
+            var instanceDescriptor = MTLAccelerationStructureUserIDInstanceDescriptor()
+            instanceDescriptor.transformationMatrix = packedTransform(instance.transform)
+            instanceDescriptor.options = [.opaque]
+            instanceDescriptor.mask = instance.mask
+            instanceDescriptor.intersectionFunctionTableOffset = 0
+            instanceDescriptor.accelerationStructureIndex = UInt32(index)
+            instanceDescriptor.userID = UInt32(index)
+            instanceDescriptors[index] = instanceDescriptor
+        }
+
+        let descriptor = MTLInstanceAccelerationStructureDescriptor()
+        descriptor.instanceDescriptorBuffer = instanceBuffer
+        descriptor.instanceDescriptorBufferOffset = 0
+        descriptor.instanceDescriptorStride = instanceStride
+        descriptor.instanceCount = instances.count
+        descriptor.instancedAccelerationStructures = orderedStructures
+        descriptor.instanceDescriptorType = .userID
+        descriptor.usage = [.refit, .preferFastIntersection]
+        return (descriptor, instanceBuffer)
     }
 
     private func packedTransform(_ transform: matrix_float4x4) -> MTLPackedFloat4x3 {

@@ -74,16 +74,17 @@ fragment float4 rayTracedReflectiveSphereFragment(
     device const RayTracingGeometry *geometries [[buffer(BufferIndexRayTracingGeometries)]],
     device const RayTracingInstance *instances [[buffer(BufferIndexRayTracingInstances)]],
     device const RayTracingObject *objects [[buffer(BufferIndexRayTracingObjects)]],
+    constant RayTracingSettings &settings [[buffer(BufferIndexRayTracingSettings)]],
     array<texture2d<half>, 64> roomTextures [[texture(TextureIndexRayTracingBase)]])
 {
     float3 normal = normalize(in.worldNormal);
     float3 incidentDirection = normalize(in.worldPosition - uniforms.cameraPosition.xyz);
 
     ray reflectionRay;
-    reflectionRay.origin = in.worldPosition + normal * 0.002;
+    reflectionRay.origin = in.worldPosition + normal * settings.rayEpsilon;
     reflectionRay.direction = normalize(reflect(incidentDirection, normal));
-    reflectionRay.min_distance = 0.001;
-    reflectionRay.max_distance = 100.0;
+    reflectionRay.min_distance = settings.rayEpsilon * 0.5;
+    reflectionRay.max_distance = settings.maxDistance;
 
     intersector<triangle_data, instancing> sceneIntersector;
     sceneIntersector.assume_geometry_type(geometry_type::triangle);
@@ -93,7 +94,8 @@ fragment float4 rayTracedReflectiveSphereFragment(
                                   address::repeat);
     float3 throughput = float3(material.reflectivity);
 
-    for (uint bounce = 0; bounce < 3; ++bounce) {
+    uint bounceLimit = min(settings.maxBounces, 8u);
+    for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
         auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
         if (intersection.type != intersection_type::triangle) {
             return float4(throughput
@@ -129,7 +131,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
         if (dot(hitNormal, reflectionRay.direction) > 0.0) {
             hitNormal = -hitNormal;
         }
-        reflectionRay.origin = hitPosition + hitNormal * 0.002;
+        reflectionRay.origin = hitPosition + hitNormal * settings.rayEpsilon;
         reflectionRay.direction = normalize(reflect(reflectionRay.direction, hitNormal));
         throughput *= material.reflectivity;
     }

@@ -83,6 +83,7 @@ actor Renderer {
 
     let dynamicUniformBuffer: MTLBuffer
     let reflectiveMaterialBuffer: MTLBuffer
+    let rayTracingSettingsBuffer: MTLBuffer
     let uniformsPerFrameSize: Int
     let pipelineState: MTLRenderPipelineState
     let reflectiveSpherePipelineState: MTLRenderPipelineState
@@ -149,7 +150,7 @@ actor Renderer {
         let argTableDesc = MTL4ArgumentTableDescriptor()
         argTableDesc.maxBufferBindCount = 4
         self.vertexArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
-        argTableDesc.maxBufferBindCount = BufferIndex.rayTracingObjects.rawValue + 1
+        argTableDesc.maxBufferBindCount = BufferIndex.rayTracingSettings.rawValue + 1
         argTableDesc.maxTextureBindCount = TextureIndex.rayTracingBase.rawValue + maxRayTracingTextures
         self.fragmentArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
 
@@ -218,6 +219,17 @@ actor Renderer {
         materialPointer.pointee.metallic = material.metallic
         materialPointer.pointee.diffuseContribution = material.diffuseContribution
 
+        self.rayTracingSettingsBuffer = self.device.makeBuffer(
+            length: MemoryLayout<RayTracingSettings>.stride,
+            options: [MTLResourceOptions.storageModeShared])!
+        self.rayTracingSettingsBuffer.label = "Ray Tracing Settings"
+        let raySettings = self.rayTracingSettingsBuffer.contents()
+            .bindMemory(to: RayTracingSettings.self, capacity: 1)
+        raySettings.pointee.maxBounces = 3
+        raySettings.pointee.maxDistance = 30
+        raySettings.pointee.rayEpsilon = 0.002
+        raySettings.pointee.padding = 0
+
         do {
             pipelineState = try Self.buildRenderPipeline(device: device,
                                                          layerRenderer: layerRenderer,
@@ -272,7 +284,7 @@ actor Renderer {
             + modelTextures.count
             + sphereVertexBuffers.count
             + sphereIndexBuffers.count
-            + 8
+            + 9
         let residencySet = try! self.device.makeResidencySet(descriptor: residencySetDesc)
         residencySet.addAllocations(vertexBuffers)
         residencySet.addAllocations(indexBuffers)
@@ -283,6 +295,7 @@ actor Renderer {
             colorMap,
             dynamicUniformBuffer,
             reflectiveMaterialBuffer,
+            rayTracingSettingsBuffer,
             rayTracingHitDataBuffers.vertices,
             rayTracingHitDataBuffers.indices,
             rayTracingHitDataBuffers.geometries,
@@ -699,9 +712,22 @@ actor Renderer {
                 }
             }
 
-            let topLevelBuild = try await rayTracingAccelerationBuilder.buildTopLevelStructure(
-                instances: instances,
-                bottomLevelStructures: rayTracingScene.bottomLevelStructures)
+            let needsFullTopLevelBuild = plan.rebuildTopLevel
+                || !plan.bottomLevelGeometry.isEmpty
+                || rayTracingScene.topLevelStructure == nil
+            let topLevelBuild: RayTracingTopLevelBuild
+            if !needsFullTopLevelBuild,
+               plan.refitTopLevel,
+               let existingTopLevel = rayTracingScene.topLevelStructure {
+                topLevelBuild = try await rayTracingAccelerationBuilder.refitTopLevelStructure(
+                    existingTopLevel,
+                    instances: instances,
+                    bottomLevelStructures: rayTracingScene.bottomLevelStructures)
+            } else {
+                topLevelBuild = try await rayTracingAccelerationBuilder.buildTopLevelStructure(
+                    instances: instances,
+                    bottomLevelStructures: rayTracingScene.bottomLevelStructures)
+            }
             rayTracingScene.setTopLevelStructure(topLevelBuild.structure,
                                                  instanceBuffer: topLevelBuild.instanceBuffer)
             #if !targetEnvironment(simulator)
@@ -942,6 +968,8 @@ actor Renderer {
                                          index: BufferIndex.rayTracingInstances.rawValue)
         fragmentArgumentTable.setAddress(hitData.objects.gpuAddress,
                                          index: BufferIndex.rayTracingObjects.rawValue)
+        fragmentArgumentTable.setAddress(rayTracingSettingsBuffer.gpuAddress,
+                                         index: BufferIndex.rayTracingSettings.rawValue)
 
         for (textureOffset, texture) in rayTracingScene.textures
             .prefix(maxRayTracingTextures).enumerated() {

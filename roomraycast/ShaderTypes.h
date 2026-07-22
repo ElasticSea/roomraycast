@@ -34,6 +34,7 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexRayTracingGeometries = 8,
     BufferIndexRayTracingInstances  = 9,
     BufferIndexRayTracingObjects    = 10,
+    BufferIndexRayTracingSettings   = 11,
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -103,5 +104,13 @@ typedef struct
     matrix_float4x4 worldToObject;
     vector_float4 sphereCenterAndRadius;
 } RayTracingObject;
+
+typedef struct
+{
+    uint32_t maxBounces;
+    float maxDistance;
+    float rayEpsilon;
+    float padding;
+} RayTracingSettings;
 
 #endif /* ShaderTypes_h */

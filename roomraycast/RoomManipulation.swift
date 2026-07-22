@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-struct ModelTransformSnapshot: Sendable {
+struct ModelTransformSnapshot: Sendable, Equatable {
     var translation = SIMD3<Float>.zero
     var yaw: Float = 0
     var scale: Float = 1
@@ -42,6 +42,12 @@ final class ModelTransformState: @unchecked Sendable {
     func reset() {
         lock.lock()
         value = ModelTransformSnapshot()
+        lock.unlock()
+    }
+
+    func restore(_ snapshot: ModelTransformSnapshot) {
+        lock.lock()
+        value = snapshot
         lock.unlock()
     }
 }

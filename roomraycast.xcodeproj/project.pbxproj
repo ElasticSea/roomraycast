@@ -28,6 +28,7 @@
 				590A25A2301101DF0052941A /* Exceptions for "roomraycast" folder in "roomraycast" target */,
 			);
 			explicitFileTypes = {
+				ModelAnchoring.swift = sourcecode.swift;
 				RoomManipulation.swift = sourcecode.swift;
 			};
 			path = roomraycast;

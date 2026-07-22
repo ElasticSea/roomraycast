@@ -101,15 +101,22 @@ actor Renderer {
     let layerRenderer: LayerRenderer
     let appModel: AppModel
     let modelTransform: ModelTransformState
+    let modelURL: URL
+    var savedRecord: AnchoredModelRecord?
+    var anchoredPlacementTransform: matrix_float4x4?
+    var anchoredScale: Float = 1
 
     init(_ layerRenderer: LayerRenderer,
          appModel: AppModel,
          modelURL: URL,
-         modelTransform: ModelTransformState) {
+         modelTransform: ModelTransformState,
+         restoredAnchor: AnchoredModelRecord?) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
         self.appModel = appModel
         self.modelTransform = modelTransform
+        self.modelURL = modelURL
+        self.savedRecord = restoredAnchor
 
         let device = self.device
         self.commandQueue = layerRenderer.commandQueue
@@ -198,8 +205,56 @@ actor Renderer {
     private func startARSession(_ arSession: ARKitSession) async {
         do {
             try await arSession.run([worldTracking])
+            await restoreSavedAnchorIfAvailable()
+            await MainActor.run {
+                appModel.setAnchorAction { [self] in
+                    try await anchorCurrentModel()
+                }
+            }
         } catch {
             fatalError("Failed to initialize ARSession")
+        }
+    }
+
+    private func restoreSavedAnchorIfAvailable() async {
+        guard let savedRecord,
+              let anchors = await worldTracking.allAnchors,
+              let worldAnchor = anchors.first(where: { $0.id == savedRecord.anchorID }) else {
+            return
+        }
+
+        anchoredPlacementTransform = worldAnchor.originFromAnchorTransform
+        anchoredScale = savedRecord.transform.scale
+    }
+
+    private func anchorCurrentModel() async throws -> URL {
+        guard worldTracking.state == .running else {
+            throw ModelAnchorError.unavailable
+        }
+
+        let adjustment = modelTransform.snapshot()
+        let anchorTransform = Self.placementTransform(for: adjustment, includeScale: false)
+        let anchor = WorldAnchor(originFromAnchorTransform: anchorTransform)
+        let replacedRecord = savedRecord
+        let newRecord = try AnchoredModelStore.save(modelAt: modelURL,
+                                                    anchorID: anchor.id,
+                                                    transform: adjustment,
+                                                    replacing: replacedRecord)
+        savedRecord = newRecord
+        anchoredPlacementTransform = nil
+        print("[AnchoredModels] Saved model before world-anchor registration: \(newRecord.modelURL.path)")
+
+        do {
+            try await worldTracking.addAnchor(anchor)
+            anchoredPlacementTransform = anchorTransform
+            anchoredScale = adjustment.scale
+            if let replacedRecord, replacedRecord.anchorID != anchor.id {
+                try? await worldTracking.removeAnchor(forID: replacedRecord.anchorID)
+            }
+            return newRecord.modelURL
+        } catch {
+            print("[AnchoredModels] Model was saved, but world-anchor registration failed: \(error.localizedDescription)")
+            throw error
         }
     }
 
@@ -209,11 +264,13 @@ actor Renderer {
                                 arSession: ARKitSession,
                                 modelURL: URL) {
         let modelTransform = appModel.modelTransform
+        let restoredAnchor = appModel.activeAnchoredModel
         Task(executorPreference: RendererTaskExecutor.shared) {
             let renderer = Renderer(layerRenderer,
                                     appModel: appModel,
                                     modelURL: modelURL,
-                                    modelTransform: modelTransform)
+                                    modelTransform: modelTransform,
+                                    restoredAnchor: restoredAnchor)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
         }
@@ -389,11 +446,13 @@ actor Renderer {
 
     private func updateGameState() {
         let adjustment = modelTransform.snapshot()
-        let placementTransform = matrix4x4_translation(adjustment.translation.x,
-                                                       adjustment.translation.y,
-                                                       adjustment.translation.z - 2.5)
-            * matrix4x4_rotation(radians: adjustment.yaw, axis: SIMD3<Float>(0, 1, 0))
-            * matrix4x4_scale(adjustment.scale)
+        let placementTransform = if let anchoredPlacementTransform,
+                                    let savedRecord,
+                                    adjustment == savedRecord.transform {
+            anchoredPlacementTransform * matrix4x4_scale(anchoredScale)
+        } else {
+            Self.placementTransform(for: adjustment, includeScale: true)
+        }
 
         for (meshIndex, renderMesh) in meshes.enumerated() {
             let pointer = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()
@@ -404,6 +463,15 @@ actor Renderer {
                 * modelNormalizationTransform
                 * renderMesh.assetTransform
         }
+    }
+
+    nonisolated private static func placementTransform(for adjustment: ModelTransformSnapshot,
+                                                       includeScale: Bool) -> matrix_float4x4 {
+        let rigidTransform = matrix4x4_translation(adjustment.translation.x,
+                                                   adjustment.translation.y,
+                                                   adjustment.translation.z - 2.5)
+            * matrix4x4_rotation(radians: adjustment.yaw, axis: SIMD3<Float>(0, 1, 0))
+        return includeScale ? rigidTransform * matrix4x4_scale(adjustment.scale) : rigidTransform
     }
 
     func renderFrame() {
@@ -585,12 +653,13 @@ actor Renderer {
         drawable.encodePresent()
     }
 
-    func renderLoop() {
+    func renderLoop() async {
         while true {
             if layerRenderer.state == .invalidated {
                 print("Layer is invalidated")
                 Task { @MainActor in
                     appModel.immersiveSpaceState = .closed
+                    appModel.setAnchorAction(nil)
                 }
                 return
             } else if layerRenderer.state == .paused {
@@ -608,6 +677,7 @@ actor Renderer {
                 autoreleasepool {
                     self.renderFrame()
                 }
+                await Task.yield()
             }
         }
     }

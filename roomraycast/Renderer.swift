@@ -16,6 +16,7 @@ nonisolated let alignedUniformsSize = (MemoryLayout<Uniforms>.size + 0xFF) & -0x
 nonisolated let alignedViewProjectionArraySize = (MemoryLayout<ViewProjectionArray>.size + 0xFF) & -0x100
 
 nonisolated let maxBuffersInFlight = 3
+nonisolated let maxRayTracingTextures = 64
 
 enum RendererError: Error {
     case badVertexDescriptor
@@ -120,6 +121,7 @@ actor Renderer {
     var lastRayTracingRoomTransform: ModelTransformSnapshot?
     var isRayTracingRoomTransformDirty = true
     var isRayTracingBuildInFlight = false
+    var areRayTracingResourcesBound = false
     var anchoredPlacementTransform: matrix_float4x4?
     var anchoredScale: Float = 1
 
@@ -146,8 +148,8 @@ actor Renderer {
         let argTableDesc = MTL4ArgumentTableDescriptor()
         argTableDesc.maxBufferBindCount = 4
         self.vertexArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
-        argTableDesc.maxBufferBindCount = BufferIndex.material.rawValue + 1
-        argTableDesc.maxTextureBindCount = 1
+        argTableDesc.maxBufferBindCount = BufferIndex.rayTracingInstances.rawValue + 1
+        argTableDesc.maxTextureBindCount = TextureIndex.rayTracingBase.rawValue + maxRayTracingTextures
         self.fragmentArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
 
         #if !targetEnvironment(simulator)
@@ -263,14 +265,22 @@ actor Renderer {
             + modelTextures.count
             + sphereVertexBuffers.count
             + sphereIndexBuffers.count
-            + 3
+            + 7
         let residencySet = try! self.device.makeResidencySet(descriptor: residencySetDesc)
         residencySet.addAllocations(vertexBuffers)
         residencySet.addAllocations(indexBuffers)
         residencySet.addAllocations(modelTextures)
         residencySet.addAllocations(sphereVertexBuffers)
         residencySet.addAllocations(sphereIndexBuffers)
-        residencySet.addAllocations([colorMap, dynamicUniformBuffer, reflectiveMaterialBuffer])
+        residencySet.addAllocations([
+            colorMap,
+            dynamicUniformBuffer,
+            reflectiveMaterialBuffer,
+            rayTracingHitDataBuffers.vertices,
+            rayTracingHitDataBuffers.indices,
+            rayTracingHitDataBuffers.geometries,
+            rayTracingHitDataBuffers.instances
+        ])
         residencySet.commit()
         commandQueueResidencySet = residencySet
         commandQueue.addResidencySet(residencySet)
@@ -682,6 +692,14 @@ actor Renderer {
                 bottomLevelStructures: rayTracingScene.bottomLevelStructures)
             rayTracingScene.setTopLevelStructure(topLevelBuild.structure,
                                                  instanceBuffer: topLevelBuild.instanceBuffer)
+            #if !targetEnvironment(simulator)
+            for structure in rayTracingScene.bottomLevelStructures.values {
+                commandQueueResidencySet.addAllocation(structure)
+            }
+            commandQueueResidencySet.addAllocation(topLevelBuild.structure)
+            commandQueueResidencySet.addAllocation(topLevelBuild.instanceBuffer)
+            commandQueueResidencySet.commit()
+            #endif
             rayTracingScene.finishBuild()
         } catch {
             rayTracingScene.failBuild(error)
@@ -834,6 +852,7 @@ actor Renderer {
 
         if isReflectiveSphereUniformReady {
             renderEncoder.pushDebugGroup("Draw Pure Reflection Sphere")
+            areRayTracingResourcesBound = bindRayTracingResourcesIfReady()
             renderEncoder.setRenderPipelineState(reflectiveSpherePipelineState)
 
             self.vertexArgumentTable.setAddress(dynamicUniformBuffer.gpuAddress
@@ -874,6 +893,32 @@ actor Renderer {
         self.commandQueue.commit([commandBuffer])
 
         drawable.encodePresent()
+    }
+
+    private func bindRayTracingResourcesIfReady() -> Bool {
+        guard rayTracingScene.isReady,
+              let topLevelStructure = rayTracingScene.topLevelStructure,
+              let hitData = rayTracingScene.hitDataBuffers else {
+            return false
+        }
+
+        fragmentArgumentTable.setResource(topLevelStructure.gpuResourceID,
+                                          bufferIndex: BufferIndex.rayTracingScene.rawValue)
+        fragmentArgumentTable.setAddress(hitData.vertices.gpuAddress,
+                                         index: BufferIndex.rayTracingVertices.rawValue)
+        fragmentArgumentTable.setAddress(hitData.indices.gpuAddress,
+                                         index: BufferIndex.rayTracingIndices.rawValue)
+        fragmentArgumentTable.setAddress(hitData.geometries.gpuAddress,
+                                         index: BufferIndex.rayTracingGeometries.rawValue)
+        fragmentArgumentTable.setAddress(hitData.instances.gpuAddress,
+                                         index: BufferIndex.rayTracingInstances.rawValue)
+
+        for (textureOffset, texture) in rayTracingScene.textures
+            .prefix(maxRayTracingTextures).enumerated() {
+            fragmentArgumentTable.setTexture(texture.gpuResourceID,
+                                             index: TextureIndex.rayTracingBase.rawValue + textureOffset)
+        }
+        return true
     }
 
     func renderLoop() async {

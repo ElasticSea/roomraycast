@@ -28,6 +28,11 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexUniforms       = 2,
     BufferIndexViewProjection = 3,
     BufferIndexMaterial       = 4,
+    BufferIndexRayTracingScene      = 5,
+    BufferIndexRayTracingVertices   = 6,
+    BufferIndexRayTracingIndices    = 7,
+    BufferIndexRayTracingGeometries = 8,
+    BufferIndexRayTracingInstances  = 9,
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -40,6 +45,7 @@ typedef NS_ENUM(EnumBackingType, VertexAttribute)
 typedef NS_ENUM(EnumBackingType, TextureIndex)
 {
     TextureIndexColor         = 0,
+    TextureIndexRayTracingBase = 1,
 };
 
 typedef NS_ENUM(EnumBackingType, RayTracingMaterialKind)

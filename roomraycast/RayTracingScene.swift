@@ -77,7 +77,9 @@ final class RayTracingScene: @unchecked Sendable {
     private var scheduledPlan: RayTracingRebuildPlan?
 
     var isReady: Bool {
-        buildState == .ready && topLevelStructure != nil
+        // Dirty/building means a replacement is being prepared; the last completed
+        // scene remains valid and keeps reflections active until the update finishes.
+        topLevelStructure != nil && hitDataBuffers != nil
     }
 
     init(device: MTLDevice) {

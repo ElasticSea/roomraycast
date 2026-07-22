@@ -250,13 +250,15 @@ actor Renderer {
 
         self.depthState = Self.buildDepthStencilState(device: device)
 
+        let fallbackColorMap: MTLTexture
         do {
-            colorMap = try Self.loadTexture(device: device, textureName: "ColorMap")
+            fallbackColorMap = try Self.loadTexture(device: device, textureName: "ColorMap")
         } catch {
             fatalError("Unable to load texture. Error info: \(error)")
         }
+        self.colorMap = fallbackColorMap
         let rayTracingTextures = meshes.flatMap { renderMesh in
-            renderMesh.baseColorTextures.map { $0 ?? colorMap }
+            renderMesh.baseColorTextures.map { $0 ?? fallbackColorMap }
         }
         rayTracingScene.setMaterialResources(buffer: reflectiveMaterialBuffer,
                                              textures: rayTracingTextures)

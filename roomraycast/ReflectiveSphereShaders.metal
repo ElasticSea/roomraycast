@@ -54,6 +54,16 @@ fragment float4 reflectiveSphereFragment(
     return float4(chrome, 1.0);
 }
 
+static float3 neutralReflectionEnvironment(float3 direction)
+{
+    float upAmount = saturate(direction.y * 0.5 + 0.5);
+    float horizon = pow(saturate(1.0 - abs(direction.y)), 6.0);
+    float3 floorColor = float3(0.025, 0.028, 0.035);
+    float3 ceilingColor = float3(0.10, 0.115, 0.14);
+    float3 environment = mix(floorColor, ceilingColor, upAmount);
+    return environment + horizon * float3(0.12, 0.13, 0.15);
+}
+
 fragment float4 rayTracedReflectiveSphereFragment(
     ReflectiveSphereVaryings in [[stage_in]],
     constant Uniforms &uniforms [[buffer(BufferIndexUniforms)]],
@@ -86,7 +96,8 @@ fragment float4 rayTracedReflectiveSphereFragment(
     for (uint bounce = 0; bounce < 3; ++bounce) {
         auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
         if (intersection.type != intersection_type::triangle) {
-            return float4(throughput * float3(0.025, 0.035, 0.055), 1.0);
+            return float4(throughput
+                          * neutralReflectionEnvironment(reflectionRay.direction), 1.0);
         }
 
         uint instanceIndex = intersection.instance_id;
@@ -123,5 +134,6 @@ fragment float4 rayTracedReflectiveSphereFragment(
         throughput *= material.reflectivity;
     }
 
-    return float4(throughput * float3(0.75, 0.86, 1.0), 1.0);
+    return float4(throughput
+                  * neutralReflectionEnvironment(reflectionRay.direction), 1.0);
 }

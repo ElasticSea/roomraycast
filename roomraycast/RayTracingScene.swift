@@ -67,6 +67,7 @@ final class RayTracingScene: @unchecked Sendable {
     private(set) var topLevelStructure: MTLAccelerationStructure?
     private(set) var instanceBuffer: MTLBuffer?
     private(set) var materialBuffer: MTLBuffer?
+    private(set) var hitDataBuffers: RayTracingHitDataBuffers?
     private(set) var geometryBuffers: [RayTracingGeometryID: [MTLBuffer]] = [:]
     private(set) var geometrySources: [RayTracingGeometryID: RayTracingTriangleGeometrySource] = [:]
     private(set) var instanceTransforms: [RayTracingInstanceID: matrix_float4x4] = [:]
@@ -111,6 +112,10 @@ final class RayTracingScene: @unchecked Sendable {
     func setMaterialResources(buffer: MTLBuffer, textures: [MTLTexture]) {
         materialBuffer = buffer
         self.textures = textures
+    }
+
+    func setHitDataBuffers(_ buffers: RayTracingHitDataBuffers) {
+        hitDataBuffers = buffers
     }
 
     func setBuildState(_ state: RayTracingSceneBuildState) {

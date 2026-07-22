@@ -30,6 +30,7 @@
 			explicitFileTypes = {
 				ModelAnchoring.swift = sourcecode.swift;
 				RayTracingAccelerationBuilder.swift = sourcecode.swift;
+				RayTracingHitData.swift = sourcecode.swift;
 				RayTracingScene.swift = sourcecode.swift;
 				ReflectiveSphere.swift = sourcecode.swift;
 				ReflectiveSphereGrabController.swift = sourcecode.swift;

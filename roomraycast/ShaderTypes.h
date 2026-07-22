@@ -42,6 +42,12 @@ typedef NS_ENUM(EnumBackingType, TextureIndex)
     TextureIndexColor         = 0,
 };
 
+typedef NS_ENUM(EnumBackingType, RayTracingMaterialKind)
+{
+    RayTracingMaterialKindRoom           = 0,
+    RayTracingMaterialKindPureReflection = 1,
+};
+
 typedef struct
 {
     matrix_float4x4 viewProjectionMatrix[2];
@@ -59,5 +65,28 @@ typedef struct
     float metallic;
     float diffuseContribution;
 } PureReflectionMaterialUniforms;
+
+typedef struct
+{
+    vector_float4 position;
+    vector_float4 normal;
+    vector_float4 texCoordAndPadding;
+} RayTracingVertex;
+
+typedef struct
+{
+    uint32_t vertexOffset;
+    uint32_t indexOffset;
+    uint32_t textureIndex;
+    uint32_t triangleCount;
+} RayTracingGeometry;
+
+typedef struct
+{
+    uint32_t geometryOffset;
+    uint32_t geometryCount;
+    uint32_t materialKind;
+    uint32_t padding;
+} RayTracingInstance;
 
 #endif /* ShaderTypes_h */

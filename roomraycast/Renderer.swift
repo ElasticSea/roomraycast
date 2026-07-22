@@ -66,6 +66,7 @@ actor Renderer {
     struct LoadedModel {
         let meshes: [RenderMesh]
         let normalizationTransform: matrix_float4x4
+        let rayTracingHitData: RayTracingCPUHitData
     }
 
     let device: MTLDevice
@@ -101,6 +102,7 @@ actor Renderer {
     let reflectiveSphereMesh: MTKMesh
     let rayTracingScene: RayTracingScene
     let rayTracingAccelerationBuilder: RayTracingAccelerationBuilder
+    let rayTracingHitDataBuffers: RayTracingHitDataBuffers
 
     let worldTracking: WorldTrackingProvider
     let handTracking: HandTrackingProvider
@@ -168,6 +170,9 @@ actor Renderer {
                                                  mtlVertexDescriptor: mtlVertexDescriptor)
             meshes = loadedModel.meshes
             modelNormalizationTransform = loadedModel.normalizationTransform
+            rayTracingHitDataBuffers = try! RayTracingHitDataBuffers(device: device,
+                                                                     data: loadedModel.rayTracingHitData)
+            rayTracingScene.setHitDataBuffers(rayTracingHitDataBuffers)
         } catch {
             fatalError("Unable to load imported model. Error info: \(error)")
         }
@@ -230,8 +235,8 @@ actor Renderer {
             fatalError("Unable to load texture. Error info: \(error)")
         }
         let rayTracingTextures = meshes.flatMap { renderMesh in
-            renderMesh.baseColorTextures.compactMap { $0 }
-        } + [colorMap]
+            renderMesh.baseColorTextures.map { $0 ?? colorMap }
+        }
         rayTracingScene.setMaterialResources(buffer: reflectiveMaterialBuffer,
                                              textures: rayTracingTextures)
         for meshIndex in meshes.indices {
@@ -480,8 +485,10 @@ actor Renderer {
         let normalizationTransform = matrix4x4_scale(scale)
             * matrix4x4_translation(-center.x, -center.y, -center.z)
 
+        let rayTracingHitData = try RayTracingCPUHitData.make(roomMeshes: convertedMeshes.modelIOMeshes)
         return LoadedModel(meshes: renderMeshes,
-                           normalizationTransform: normalizationTransform)
+                           normalizationTransform: normalizationTransform,
+                           rayTracingHitData: rayTracingHitData)
     }
 
     static func loadBaseColorTexture(material: MDLMaterial?,

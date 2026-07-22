@@ -27,12 +27,14 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexMeshGenerics   = 1,
     BufferIndexUniforms       = 2,
     BufferIndexViewProjection = 3,
+    BufferIndexMaterial       = 4,
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
 {
     VertexAttributePosition   = 0,
     VertexAttributeTexcoord   = 1,
+    VertexAttributeNormal     = 2,
 };
 
 typedef NS_ENUM(EnumBackingType, TextureIndex)
@@ -50,5 +52,12 @@ typedef struct
     matrix_float4x4 modelMatrix;
 } Uniforms;
 
-#endif /* ShaderTypes_h */
+typedef struct
+{
+    float reflectivity;
+    float roughness;
+    float metallic;
+    float diffuseContribution;
+} PureReflectionMaterialUniforms;
 
+#endif /* ShaderTypes_h */

@@ -82,6 +82,7 @@ actor Renderer {
     let dynamicUniformBuffer: MTLBuffer
     let uniformsPerFrameSize: Int
     let pipelineState: MTLRenderPipelineState
+    let reflectiveSpherePipelineState: MTLRenderPipelineState
     let depthState: MTLDepthStencilState
     let colorMap: MTLTexture
 
@@ -168,6 +169,10 @@ actor Renderer {
             pipelineState = try Self.buildRenderPipeline(device: device,
                                                          layerRenderer: layerRenderer,
                                                          mtlVertexDescriptor: mtlVertexDescriptor)
+            reflectiveSpherePipelineState = try Self.buildReflectiveSpherePipeline(
+                device: device,
+                layerRenderer: layerRenderer,
+                vertexDescriptor: ReflectiveSphereMesh.metalVertexDescriptor())
         } catch {
             fatalError("Unable to compile render pipeline state.  Error info: \(error)")
         }
@@ -335,6 +340,22 @@ actor Renderer {
         depthStateDescriptor.depthCompareFunction = MTLCompareFunction.greater
         depthStateDescriptor.isDepthWriteEnabled = true
         return device.makeDepthStencilState(descriptor: depthStateDescriptor)!
+    }
+
+    static func buildReflectiveSpherePipeline(device: MTLDevice,
+                                              layerRenderer: LayerRenderer,
+                                              vertexDescriptor: MTLVertexDescriptor) throws -> MTLRenderPipelineState {
+        let library = device.makeDefaultLibrary()
+        let descriptor = MTLRenderPipelineDescriptor()
+        descriptor.label = "Pure Reflection Sphere Pipeline"
+        descriptor.vertexFunction = library?.makeFunction(name: "reflectiveSphereVertex")
+        descriptor.fragmentFunction = library?.makeFunction(name: "reflectiveSphereFragment")
+        descriptor.vertexDescriptor = vertexDescriptor
+        descriptor.rasterSampleCount = device.rasterSampleCount
+        descriptor.colorAttachments[0].pixelFormat = layerRenderer.configuration.colorFormat
+        descriptor.depthAttachmentPixelFormat = layerRenderer.configuration.depthFormat
+        descriptor.maxVertexAmplificationCount = layerRenderer.properties.viewCount
+        return try device.makeRenderPipelineState(descriptor: descriptor)
     }
 
     static func loadModel(device: MTLDevice,

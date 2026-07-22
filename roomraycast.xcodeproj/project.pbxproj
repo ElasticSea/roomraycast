@@ -32,6 +32,7 @@
 				ReflectiveSphere.swift = sourcecode.swift;
 				ReflectiveSphereMesh.swift = sourcecode.swift;
 				ReflectiveSpherePlacement.swift = sourcecode.swift;
+				ReflectiveSphereShaders.metal = sourcecode.metal;
 				RoomManipulation.swift = sourcecode.swift;
 			};
 			path = roomraycast;

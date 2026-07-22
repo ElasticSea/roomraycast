@@ -27,6 +27,9 @@
 			exceptions = (
 				590A25A2301101DF0052941A /* Exceptions for "roomraycast" folder in "roomraycast" target */,
 			);
+			explicitFileTypes = {
+				RoomManipulation.swift = sourcecode.swift;
+			};
 			path = roomraycast;
 			sourceTree = "<group>";
 		};
@@ -351,7 +354,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = 590A258C301101DD0052941A /* Project object */;
 }

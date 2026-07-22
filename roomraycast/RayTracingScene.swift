@@ -68,6 +68,7 @@ final class RayTracingScene: @unchecked Sendable {
     private(set) var instanceBuffer: MTLBuffer?
     private(set) var materialBuffer: MTLBuffer?
     private(set) var geometryBuffers: [RayTracingGeometryID: [MTLBuffer]] = [:]
+    private(set) var geometrySources: [RayTracingGeometryID: RayTracingTriangleGeometrySource] = [:]
     private(set) var instanceTransforms: [RayTracingInstanceID: matrix_float4x4] = [:]
     private(set) var textures: [MTLTexture] = []
     private(set) var buildState = RayTracingSceneBuildState.idle
@@ -92,6 +93,10 @@ final class RayTracingScene: @unchecked Sendable {
     func registerGeometryBuffers(_ buffers: [MTLBuffer],
                                  for geometryID: RayTracingGeometryID) {
         geometryBuffers[geometryID] = buffers
+    }
+
+    func registerGeometrySource(_ source: RayTracingTriangleGeometrySource) {
+        geometrySources[source.id] = source
     }
 
     func setInstanceTransform(_ transform: matrix_float4x4,

@@ -100,6 +100,7 @@ actor Renderer {
     let modelNormalizationTransform: matrix_float4x4
     let reflectiveSphereMesh: MTKMesh
     let rayTracingScene: RayTracingScene
+    let rayTracingAccelerationBuilder: RayTracingAccelerationBuilder
 
     let worldTracking: WorldTrackingProvider
     let handTracking: HandTrackingProvider
@@ -134,6 +135,7 @@ actor Renderer {
         let device = self.device
         self.reflectiveSphereMesh = try! ReflectiveSphereMesh.make(device: device)
         self.rayTracingScene = RayTracingScene(device: device)
+        self.rayTracingAccelerationBuilder = try! RayTracingAccelerationBuilder(device: device)
         self.commandQueue = layerRenderer.commandQueue
         self.commandBuffer = device.makeCommandBuffer()!
         self.commandAllocators = (0...maxBuffersInFlight).map { _ in device.makeCommandAllocator()! }
@@ -169,19 +171,34 @@ actor Renderer {
             fatalError("Unable to load imported model. Error info: \(error)")
         }
 
+        var rayTracingGeometrySources: [RayTracingTriangleGeometrySource] = []
         for (meshIndex, renderMesh) in meshes.enumerated() {
             let geometryID = RayTracingGeometryID.roomMesh(meshIndex)
+            let geometrySource = try! RayTracingTriangleGeometrySource(id: geometryID,
+                                                                       mesh: renderMesh.mesh)
             let buffers = renderMesh.mesh.vertexBuffers.map { $0.buffer }
                 + renderMesh.mesh.submeshes.map { $0.indexBuffer.buffer }
+            rayTracingScene.registerGeometrySource(geometrySource)
             rayTracingScene.registerGeometryBuffers(buffers, for: geometryID)
             rayTracingScene.markDirty(.geometryChanged(geometryID))
             rayTracingScene.markDirty(.instanceAdded(.roomMesh(meshIndex)))
+            rayTracingGeometrySources.append(geometrySource)
         }
+        let sphereGeometrySource = try! RayTracingTriangleGeometrySource(id: .reflectiveSphere,
+                                                                         mesh: reflectiveSphereMesh)
         let sphereBuffers = reflectiveSphereMesh.vertexBuffers.map { $0.buffer }
             + reflectiveSphereMesh.submeshes.map { $0.indexBuffer.buffer }
+        rayTracingScene.registerGeometrySource(sphereGeometrySource)
         rayTracingScene.registerGeometryBuffers(sphereBuffers, for: .reflectiveSphere)
         rayTracingScene.markDirty(.geometryChanged(.reflectiveSphere))
         rayTracingScene.markDirty(.instanceAdded(.reflectiveSphere))
+        rayTracingGeometrySources.append(sphereGeometrySource)
+
+        let bottomLevelStructures = try! rayTracingAccelerationBuilder
+            .buildBottomLevelStructures(for: rayTracingGeometrySources)
+        for (geometryID, structure) in bottomLevelStructures {
+            rayTracingScene.setBottomLevelStructure(structure, for: geometryID)
+        }
 
         uniformsPerFrameSize = alignedUniformsSize * max(meshes.count + 1, 1)
         let uniformBufferSize = uniformsPerFrameSize * maxBuffersInFlight

@@ -609,6 +609,7 @@ actor Renderer {
 
         self.updateGameState()
         rayTracingScene.schedulePendingEvents()
+        self.updateRayTracingAccelerationStructuresIfNeeded()
 
         frame.endUpdate()
 
@@ -629,6 +630,50 @@ actor Renderer {
         commandQueue.signalEvent(self.endFrameEvent, value: committedFrameIndex)
 
         frame.endSubmission()
+    }
+
+    private func updateRayTracingAccelerationStructuresIfNeeded() {
+        var instances: [RayTracingInstanceSource] = []
+        for meshIndex in meshes.indices {
+            let instanceID = RayTracingInstanceID.roomMesh(meshIndex)
+            guard let transform = rayTracingScene.instanceTransforms[instanceID] else { return }
+            instances.append(RayTracingInstanceSource(id: instanceID,
+                                                      geometryID: .roomMesh(meshIndex),
+                                                      transform: transform,
+                                                      mask: 0x1))
+        }
+        guard let sphereTransform = rayTracingScene.instanceTransforms[.reflectiveSphere] else {
+            return
+        }
+        instances.append(RayTracingInstanceSource(id: .reflectiveSphere,
+                                                  geometryID: .reflectiveSphere,
+                                                  transform: sphereTransform,
+                                                  mask: 0x2))
+
+        guard let plan = rayTracingScene.consumeRebuildPlan() else { return }
+
+        do {
+            if !plan.bottomLevelGeometry.isEmpty {
+                let sources = plan.bottomLevelGeometry.compactMap {
+                    rayTracingScene.geometrySources[$0]
+                }
+                let rebuiltStructures = try rayTracingAccelerationBuilder
+                    .buildBottomLevelStructures(for: sources)
+                for (geometryID, structure) in rebuiltStructures {
+                    rayTracingScene.setBottomLevelStructure(structure, for: geometryID)
+                }
+            }
+
+            let topLevelBuild = try rayTracingAccelerationBuilder.buildTopLevelStructure(
+                instances: instances,
+                bottomLevelStructures: rayTracingScene.bottomLevelStructures)
+            rayTracingScene.setTopLevelStructure(topLevelBuild.structure,
+                                                 instanceBuffer: topLevelBuild.instanceBuffer)
+            rayTracingScene.finishBuild()
+        } catch {
+            rayTracingScene.failBuild(error)
+            print("[RayTracing] \(error.localizedDescription)")
+        }
     }
 
     func render(drawable: LayerRenderer.Drawable, frameIndex: UInt64) {

@@ -31,6 +31,7 @@
 				ModelAnchoring.swift = sourcecode.swift;
 				RayTracingScene.swift = sourcecode.swift;
 				ReflectiveSphere.swift = sourcecode.swift;
+				ReflectiveSphereGrabController.swift = sourcecode.swift;
 				ReflectiveSphereMesh.swift = sourcecode.swift;
 				ReflectiveSpherePlacement.swift = sourcecode.swift;
 				ReflectiveSphereShaders.metal = sourcecode.metal;

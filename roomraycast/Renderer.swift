@@ -109,6 +109,7 @@ actor Renderer {
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
     var reflectiveSphere = ReflectiveSphere()
+    var reflectiveSphereGrabController = ReflectiveSphereGrabController()
     var reflectiveSpherePlacement = ReflectiveSpherePlacement()
     var rightHandPinchTracker = RightHandPinchTracker()
     var rightHandPinchFrame = RightHandPinchFrame.unavailable
@@ -583,6 +584,8 @@ actor Renderer {
         rightHandPinchFrame = rightHandPinchTracker.update(with: rightHandAnchor)
         reflectiveSpherePlacement.captureFirstTrackedHeadPose(from: deviceAnchor)
         reflectiveSpherePlacement.placeSphereIfPossible(&reflectiveSphere)
+        reflectiveSphereGrabController.update(pinch: rightHandPinchFrame,
+                                              sphere: &reflectiveSphere)
 
         drawable.deviceAnchor = deviceAnchor
 

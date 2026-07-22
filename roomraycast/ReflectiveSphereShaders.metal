@@ -28,7 +28,10 @@ vertex ReflectiveSphereVaryings reflectiveSphereVertex(
     ReflectiveSphereVaryings out;
     float4 worldPosition = uniforms.modelMatrix * float4(in.position, 1.0);
     out.position = viewProjectionArray.viewProjectionMatrix[ampID] * worldPosition;
-    out.worldNormal = normalize((float3x3)uniforms.modelMatrix * in.normal);
+    float3x3 normalMatrix = float3x3(uniforms.modelMatrix[0].xyz,
+                                     uniforms.modelMatrix[1].xyz,
+                                     uniforms.modelMatrix[2].xyz);
+    out.worldNormal = normalize(normalMatrix * in.normal);
     return out;
 }
 

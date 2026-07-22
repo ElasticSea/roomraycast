@@ -86,6 +86,7 @@ actor Renderer {
     let uniformsPerFrameSize: Int
     let pipelineState: MTLRenderPipelineState
     let reflectiveSpherePipelineState: MTLRenderPipelineState
+    let rayTracedReflectiveSpherePipelineState: MTLRenderPipelineState
     let depthState: MTLDepthStencilState
     let colorMap: MTLTexture
 
@@ -224,7 +225,13 @@ actor Renderer {
             reflectiveSpherePipelineState = try Self.buildReflectiveSpherePipeline(
                 device: device,
                 layerRenderer: layerRenderer,
-                vertexDescriptor: ReflectiveSphereMesh.metalVertexDescriptor())
+                vertexDescriptor: ReflectiveSphereMesh.metalVertexDescriptor(),
+                fragmentFunctionName: "reflectiveSphereFragment")
+            rayTracedReflectiveSpherePipelineState = try Self.buildReflectiveSpherePipeline(
+                device: device,
+                layerRenderer: layerRenderer,
+                vertexDescriptor: ReflectiveSphereMesh.metalVertexDescriptor(),
+                fragmentFunctionName: "rayTracedReflectiveSphereFragment")
         } catch {
             fatalError("Unable to compile render pipeline state.  Error info: \(error)")
         }
@@ -425,12 +432,13 @@ actor Renderer {
 
     static func buildReflectiveSpherePipeline(device: MTLDevice,
                                               layerRenderer: LayerRenderer,
-                                              vertexDescriptor: MTLVertexDescriptor) throws -> MTLRenderPipelineState {
+                                              vertexDescriptor: MTLVertexDescriptor,
+                                              fragmentFunctionName: String) throws -> MTLRenderPipelineState {
         let library = device.makeDefaultLibrary()
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.label = "Pure Reflection Sphere Pipeline"
         descriptor.vertexFunction = library?.makeFunction(name: "reflectiveSphereVertex")
-        descriptor.fragmentFunction = library?.makeFunction(name: "reflectiveSphereFragment")
+        descriptor.fragmentFunction = library?.makeFunction(name: fragmentFunctionName)
         descriptor.vertexDescriptor = vertexDescriptor
         descriptor.rasterSampleCount = device.rasterSampleCount
         descriptor.colorAttachments[0].pixelFormat = layerRenderer.configuration.colorFormat
@@ -724,6 +732,14 @@ actor Renderer {
 
         drawable.deviceAnchor = deviceAnchor
 
+        if let deviceAnchor, isReflectiveSphereUniformReady {
+            let spherePointer = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()
+                                                        + uniformBufferOffset
+                                                        + alignedUniformsSize * meshes.count)
+                .bindMemory(to: Uniforms.self, capacity: 1)
+            spherePointer[0].cameraPosition = deviceAnchor.originFromAnchorTransform.columns.3
+        }
+
         if perDrawableTarget[drawable.target] == nil {
             perDrawableTarget[drawable.target] = .init(drawable: drawable)
         }
@@ -853,12 +869,17 @@ actor Renderer {
         if isReflectiveSphereUniformReady {
             renderEncoder.pushDebugGroup("Draw Pure Reflection Sphere")
             areRayTracingResourcesBound = bindRayTracingResourcesIfReady()
-            renderEncoder.setRenderPipelineState(reflectiveSpherePipelineState)
+            renderEncoder.setRenderPipelineState(areRayTracingResourcesBound
+                                                  ? rayTracedReflectiveSpherePipelineState
+                                                  : reflectiveSpherePipelineState)
 
-            self.vertexArgumentTable.setAddress(dynamicUniformBuffer.gpuAddress
-                                                + UInt64(uniformBufferOffset)
-                                                + UInt64(alignedUniformsSize * meshes.count),
+            let sphereUniformAddress = dynamicUniformBuffer.gpuAddress
+                + UInt64(uniformBufferOffset)
+                + UInt64(alignedUniformsSize * meshes.count)
+            self.vertexArgumentTable.setAddress(sphereUniformAddress,
                                                 index: BufferIndex.uniforms.rawValue)
+            self.fragmentArgumentTable.setAddress(sphereUniformAddress,
+                                                  index: BufferIndex.uniforms.rawValue)
             self.fragmentArgumentTable.setAddress(reflectiveMaterialBuffer.gpuAddress,
                                                   index: BufferIndex.material.rawValue)
 

@@ -4,10 +4,12 @@
 //
 
 #include <metal_stdlib>
+#include <metal_raytracing>
 #include <simd/simd.h>
 #import "ShaderTypes.h"
 
 using namespace metal;
+using namespace raytracing;
 
 struct ReflectiveSphereVertex {
     float3 position [[attribute(VertexAttributePosition)]];
@@ -16,6 +18,7 @@ struct ReflectiveSphereVertex {
 
 struct ReflectiveSphereVaryings {
     float4 position [[position]];
+    float3 worldPosition;
     float3 worldNormal;
 };
 
@@ -28,6 +31,7 @@ vertex ReflectiveSphereVaryings reflectiveSphereVertex(
     ReflectiveSphereVaryings out;
     float4 worldPosition = uniforms.modelMatrix * float4(in.position, 1.0);
     out.position = viewProjectionArray.viewProjectionMatrix[ampID] * worldPosition;
+    out.worldPosition = worldPosition.xyz;
     float3x3 normalMatrix = float3x3(uniforms.modelMatrix[0].xyz,
                                      uniforms.modelMatrix[1].xyz,
                                      uniforms.modelMatrix[2].xyz);
@@ -48,4 +52,31 @@ fragment float4 reflectiveSphereFragment(
     chrome += horizonBand * 0.35;
     chrome *= material.reflectivity;
     return float4(chrome, 1.0);
+}
+
+fragment float4 rayTracedReflectiveSphereFragment(
+    ReflectiveSphereVaryings in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(BufferIndexUniforms)]],
+    constant PureReflectionMaterialUniforms &material [[buffer(BufferIndexMaterial)]],
+    instance_acceleration_structure scene [[buffer(BufferIndexRayTracingScene)]])
+{
+    float3 normal = normalize(in.worldNormal);
+    float3 incidentDirection = normalize(in.worldPosition - uniforms.cameraPosition.xyz);
+
+    ray reflectionRay;
+    reflectionRay.origin = in.worldPosition + normal * 0.002;
+    reflectionRay.direction = normalize(reflect(incidentDirection, normal));
+    reflectionRay.min_distance = 0.001;
+    reflectionRay.max_distance = 100.0;
+
+    intersector<triangle_data, instancing> sceneIntersector;
+    sceneIntersector.assume_geometry_type(geometry_type::triangle);
+    auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
+
+    if (intersection.type == intersection_type::triangle) {
+        float hitBrightness = saturate(1.0 - intersection.distance / 20.0);
+        return float4(float3(0.2 + hitBrightness * 0.8) * material.reflectivity, 1.0);
+    }
+
+    return float4(0.025, 0.035, 0.055, 1.0);
 }

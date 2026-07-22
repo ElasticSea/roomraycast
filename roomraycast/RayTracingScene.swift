@@ -4,6 +4,7 @@
 //
 
 import Metal
+import simd
 
 enum RayTracingGeometryID: Hashable, Sendable {
     case roomMesh(Int)
@@ -11,7 +12,7 @@ enum RayTracingGeometryID: Hashable, Sendable {
 }
 
 enum RayTracingInstanceID: Hashable, Sendable {
-    case room
+    case roomMesh(Int)
     case reflectiveSphere
 }
 
@@ -47,6 +48,16 @@ struct RayTracingRebuildPlan: Sendable, Equatable {
             || !removedInstances.isEmpty
             || !changedMaterials.isEmpty
     }
+
+    mutating func merge(_ other: RayTracingRebuildPlan) {
+        bottomLevelGeometry.formUnion(other.bottomLevelGeometry)
+        transformedInstances.formUnion(other.transformedInstances)
+        addedInstances.formUnion(other.addedInstances)
+        removedInstances.formUnion(other.removedInstances)
+        changedMaterials.formUnion(other.changedMaterials)
+        rebuildTopLevel = rebuildTopLevel || other.rebuildTopLevel
+        refitTopLevel = !rebuildTopLevel && (refitTopLevel || other.refitTopLevel)
+    }
 }
 
 final class RayTracingScene: @unchecked Sendable {
@@ -57,9 +68,11 @@ final class RayTracingScene: @unchecked Sendable {
     private(set) var instanceBuffer: MTLBuffer?
     private(set) var materialBuffer: MTLBuffer?
     private(set) var geometryBuffers: [RayTracingGeometryID: [MTLBuffer]] = [:]
+    private(set) var instanceTransforms: [RayTracingInstanceID: matrix_float4x4] = [:]
     private(set) var textures: [MTLTexture] = []
     private(set) var buildState = RayTracingSceneBuildState.idle
     private var pendingEvents: Set<RayTracingSceneEvent> = []
+    private var scheduledPlan: RayTracingRebuildPlan?
 
     init(device: MTLDevice) {
         self.device = device
@@ -81,6 +94,11 @@ final class RayTracingScene: @unchecked Sendable {
         geometryBuffers[geometryID] = buffers
     }
 
+    func setInstanceTransform(_ transform: matrix_float4x4,
+                              for instanceID: RayTracingInstanceID) {
+        instanceTransforms[instanceID] = transform
+    }
+
     func setMaterialResources(buffer: MTLBuffer, textures: [MTLTexture]) {
         materialBuffer = buffer
         self.textures = textures
@@ -96,7 +114,15 @@ final class RayTracingScene: @unchecked Sendable {
     }
 
     func consumeRebuildPlan() -> RayTracingRebuildPlan? {
-        guard !pendingEvents.isEmpty else { return nil }
+        schedulePendingEvents()
+        guard let plan = scheduledPlan else { return nil }
+        scheduledPlan = nil
+        buildState = .building
+        return plan
+    }
+
+    func schedulePendingEvents() {
+        guard !pendingEvents.isEmpty else { return }
 
         var plan = RayTracingRebuildPlan()
         for event in pendingEvents {
@@ -123,12 +149,17 @@ final class RayTracingScene: @unchecked Sendable {
         }
 
         pendingEvents.removeAll(keepingCapacity: true)
-        buildState = .building
-        return plan
+        if var existingPlan = scheduledPlan {
+            existingPlan.merge(plan)
+            scheduledPlan = existingPlan
+        } else {
+            scheduledPlan = plan
+        }
+        buildState = .dirty
     }
 
     func finishBuild() {
-        buildState = pendingEvents.isEmpty ? .ready : .dirty
+        buildState = pendingEvents.isEmpty && scheduledPlan == nil ? .ready : .dirty
     }
 
     func failBuild(_ error: any Error) {

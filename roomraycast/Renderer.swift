@@ -114,6 +114,8 @@ actor Renderer {
     var rightHandPinchTracker = RightHandPinchTracker()
     var rightHandPinchFrame = RightHandPinchFrame.unavailable
     var isReflectiveSphereUniformReady = false
+    var lastRayTracingRoomTransform: ModelTransformSnapshot?
+    var isRayTracingRoomTransformDirty = true
     var anchoredPlacementTransform: matrix_float4x4?
     var anchoredScale: Float = 1
 
@@ -167,6 +169,20 @@ actor Renderer {
             fatalError("Unable to load imported model. Error info: \(error)")
         }
 
+        for (meshIndex, renderMesh) in meshes.enumerated() {
+            let geometryID = RayTracingGeometryID.roomMesh(meshIndex)
+            let buffers = renderMesh.mesh.vertexBuffers.map { $0.buffer }
+                + renderMesh.mesh.submeshes.map { $0.indexBuffer.buffer }
+            rayTracingScene.registerGeometryBuffers(buffers, for: geometryID)
+            rayTracingScene.markDirty(.geometryChanged(geometryID))
+            rayTracingScene.markDirty(.instanceAdded(.roomMesh(meshIndex)))
+        }
+        let sphereBuffers = reflectiveSphereMesh.vertexBuffers.map { $0.buffer }
+            + reflectiveSphereMesh.submeshes.map { $0.indexBuffer.buffer }
+        rayTracingScene.registerGeometryBuffers(sphereBuffers, for: .reflectiveSphere)
+        rayTracingScene.markDirty(.geometryChanged(.reflectiveSphere))
+        rayTracingScene.markDirty(.instanceAdded(.reflectiveSphere))
+
         uniformsPerFrameSize = alignedUniformsSize * max(meshes.count + 1, 1)
         let uniformBufferSize = uniformsPerFrameSize * maxBuffersInFlight
         self.dynamicUniformBuffer = self.device.makeBuffer(length: uniformBufferSize,
@@ -204,6 +220,15 @@ actor Renderer {
         } catch {
             fatalError("Unable to load texture. Error info: \(error)")
         }
+        let rayTracingTextures = meshes.flatMap { renderMesh in
+            renderMesh.baseColorTextures.compactMap { $0 }
+        } + [colorMap]
+        rayTracingScene.setMaterialResources(buffer: reflectiveMaterialBuffer,
+                                             textures: rayTracingTextures)
+        for meshIndex in meshes.indices {
+            rayTracingScene.markDirty(.materialChanged(.roomMesh(meshIndex)))
+        }
+        rayTracingScene.markDirty(.materialChanged(.reflectiveSphere))
 
         #if !targetEnvironment(simulator)
         // Add all persistent resources to the command queue residency set,
@@ -264,6 +289,7 @@ actor Renderer {
 
         anchoredPlacementTransform = worldAnchor.originFromAnchorTransform
         anchoredScale = savedRecord.transform.scale
+        isRayTracingRoomTransformDirty = true
     }
 
     private func anchorCurrentModel() async throws -> URL {
@@ -287,6 +313,7 @@ actor Renderer {
             try await worldTracking.addAnchor(anchor)
             anchoredPlacementTransform = anchorTransform
             anchoredScale = adjustment.scale
+            isRayTracingRoomTransformDirty = true
             if let replacedRecord, replacedRecord.anchorID != anchor.id {
                 try? await worldTracking.removeAnchor(forID: replacedRecord.anchorID)
             }
@@ -501,6 +528,8 @@ actor Renderer {
 
     private func updateGameState() {
         let adjustment = modelTransform.snapshot()
+        let roomTransformChanged = isRayTracingRoomTransformDirty
+            || lastRayTracingRoomTransform != adjustment
         let placementTransform = if let anchoredPlacementTransform,
                                     let savedRecord,
                                     adjustment == savedRecord.transform {
@@ -517,7 +546,14 @@ actor Renderer {
             pointer[0].modelMatrix = placementTransform
                 * modelNormalizationTransform
                 * renderMesh.assetTransform
+            if roomTransformChanged {
+                let instanceID = RayTracingInstanceID.roomMesh(meshIndex)
+                rayTracingScene.setInstanceTransform(pointer[0].modelMatrix, for: instanceID)
+                rayTracingScene.markDirty(.transformChanged(instanceID))
+            }
         }
+        lastRayTracingRoomTransform = adjustment
+        isRayTracingRoomTransformDirty = false
 
         isReflectiveSphereUniformReady = false
         if let sphereTransform = reflectiveSphere.originFromSphereTransform {
@@ -555,6 +591,7 @@ actor Renderer {
         self.updateDynamicBufferState(frameIndex: frame.frameIndex)
 
         self.updateGameState()
+        rayTracingScene.schedulePendingEvents()
 
         frame.endUpdate()
 
@@ -583,9 +620,14 @@ actor Renderer {
         let rightHandAnchor = handTracking.handAnchors(at: time).rightHand
         rightHandPinchFrame = rightHandPinchTracker.update(with: rightHandAnchor)
         reflectiveSpherePlacement.captureFirstTrackedHeadPose(from: deviceAnchor)
-        reflectiveSpherePlacement.placeSphereIfPossible(&reflectiveSphere)
-        reflectiveSphereGrabController.update(pinch: rightHandPinchFrame,
-                                              sphere: &reflectiveSphere)
+        let didPlaceSphere = reflectiveSpherePlacement.placeSphereIfPossible(&reflectiveSphere)
+        let didMoveSphere = reflectiveSphereGrabController.update(pinch: rightHandPinchFrame,
+                                                                  sphere: &reflectiveSphere)
+        if (didPlaceSphere || didMoveSphere),
+           let sphereTransform = reflectiveSphere.originFromSphereTransform {
+            rayTracingScene.setInstanceTransform(sphereTransform, for: .reflectiveSphere)
+            rayTracingScene.markDirty(.transformChanged(.reflectiveSphere))
+        }
 
         drawable.deviceAnchor = deviceAnchor
 

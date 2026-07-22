@@ -99,6 +99,7 @@ actor Renderer {
     let meshes: [RenderMesh]
     let modelNormalizationTransform: matrix_float4x4
     let reflectiveSphereMesh: MTKMesh
+    let rayTracingScene: RayTracingScene
 
     let worldTracking: WorldTrackingProvider
     let layerRenderer: LayerRenderer
@@ -126,6 +127,7 @@ actor Renderer {
 
         let device = self.device
         self.reflectiveSphereMesh = try! ReflectiveSphereMesh.make(device: device)
+        self.rayTracingScene = RayTracingScene(device: device)
         self.commandQueue = layerRenderer.commandQueue
         self.commandBuffer = device.makeCommandBuffer()!
         self.commandAllocators = (0...maxBuffersInFlight).map { _ in device.makeCommandAllocator()! }

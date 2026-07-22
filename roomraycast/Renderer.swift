@@ -102,6 +102,7 @@ actor Renderer {
     let rayTracingScene: RayTracingScene
 
     let worldTracking: WorldTrackingProvider
+    let handTracking: HandTrackingProvider
     let layerRenderer: LayerRenderer
     let appModel: AppModel
     let modelTransform: ModelTransformState
@@ -109,6 +110,8 @@ actor Renderer {
     var savedRecord: AnchoredModelRecord?
     var reflectiveSphere = ReflectiveSphere()
     var reflectiveSpherePlacement = ReflectiveSpherePlacement()
+    var rightHandPinchTracker = RightHandPinchTracker()
+    var rightHandPinchFrame = RightHandPinchFrame.unavailable
     var isReflectiveSphereUniformReady = false
     var anchoredPlacementTransform: matrix_float4x4?
     var anchoredScale: Float = 1
@@ -234,11 +237,12 @@ actor Renderer {
         #endif
 
         worldTracking = WorldTrackingProvider()
+        handTracking = HandTrackingProvider()
     }
 
     private func startARSession(_ arSession: ARKitSession) async {
         do {
-            try await arSession.run([worldTracking])
+            try await arSession.run([worldTracking, handTracking])
             await restoreSavedAnchorIfAvailable()
             await MainActor.run {
                 appModel.setAnchorAction { [self] in
@@ -575,6 +579,8 @@ actor Renderer {
     func render(drawable: LayerRenderer.Drawable, frameIndex: UInt64) {
         let time = drawable.frameTiming.presentationTime.timeInterval
         let deviceAnchor = worldTracking.queryDeviceAnchor(atTimestamp: time)
+        let rightHandAnchor = handTracking.handAnchors(at: time).rightHand
+        rightHandPinchFrame = rightHandPinchTracker.update(with: rightHandAnchor)
         reflectiveSpherePlacement.captureFirstTrackedHeadPose(from: deviceAnchor)
         reflectiveSpherePlacement.placeSphereIfPossible(&reflectiveSphere)
 

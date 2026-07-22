@@ -73,7 +73,7 @@ final class RayTracingScene: @unchecked Sendable {
     private(set) var instanceTransforms: [RayTracingInstanceID: matrix_float4x4] = [:]
     private(set) var textures: [MTLTexture] = []
     private(set) var buildState = RayTracingSceneBuildState.idle
-    private var pendingEvents: Set<RayTracingSceneEvent> = []
+    private var pendingPlan: RayTracingRebuildPlan?
     private var scheduledPlan: RayTracingRebuildPlan?
 
     var isReady: Bool {
@@ -125,7 +125,13 @@ final class RayTracingScene: @unchecked Sendable {
     }
 
     func markDirty(_ event: RayTracingSceneEvent) {
-        pendingEvents.insert(event)
+        let eventPlan = rebuildPlan(for: event)
+        if var existingPlan = pendingPlan {
+            existingPlan.merge(eventPlan)
+            pendingPlan = existingPlan
+        } else {
+            pendingPlan = eventPlan
+        }
         buildState = .dirty
     }
 
@@ -138,33 +144,8 @@ final class RayTracingScene: @unchecked Sendable {
     }
 
     func schedulePendingEvents() {
-        guard !pendingEvents.isEmpty else { return }
-
-        var plan = RayTracingRebuildPlan()
-        for event in pendingEvents {
-            switch event {
-            case .geometryChanged(let geometryID):
-                plan.bottomLevelGeometry.insert(geometryID)
-                plan.rebuildTopLevel = true
-            case .transformChanged(let instanceID):
-                plan.transformedInstances.insert(instanceID)
-                plan.refitTopLevel = true
-            case .instanceAdded(let instanceID):
-                plan.addedInstances.insert(instanceID)
-                plan.rebuildTopLevel = true
-            case .instanceRemoved(let instanceID):
-                plan.removedInstances.insert(instanceID)
-                plan.rebuildTopLevel = true
-            case .materialChanged(let instanceID):
-                plan.changedMaterials.insert(instanceID)
-            }
-        }
-
-        if plan.rebuildTopLevel {
-            plan.refitTopLevel = false
-        }
-
-        pendingEvents.removeAll(keepingCapacity: true)
+        guard let plan = pendingPlan else { return }
+        pendingPlan = nil
         if var existingPlan = scheduledPlan {
             existingPlan.merge(plan)
             scheduledPlan = existingPlan
@@ -175,10 +156,31 @@ final class RayTracingScene: @unchecked Sendable {
     }
 
     func finishBuild() {
-        buildState = pendingEvents.isEmpty && scheduledPlan == nil ? .ready : .dirty
+        buildState = pendingPlan == nil && scheduledPlan == nil ? .ready : .dirty
     }
 
     func failBuild(_ error: any Error) {
         buildState = .failed(error.localizedDescription)
+    }
+
+    private func rebuildPlan(for event: RayTracingSceneEvent) -> RayTracingRebuildPlan {
+        var plan = RayTracingRebuildPlan()
+        switch event {
+        case .geometryChanged(let geometryID):
+            plan.bottomLevelGeometry.insert(geometryID)
+            plan.rebuildTopLevel = true
+        case .transformChanged(let instanceID):
+            plan.transformedInstances.insert(instanceID)
+            plan.refitTopLevel = true
+        case .instanceAdded(let instanceID):
+            plan.addedInstances.insert(instanceID)
+            plan.rebuildTopLevel = true
+        case .instanceRemoved(let instanceID):
+            plan.removedInstances.insert(instanceID)
+            plan.rebuildTopLevel = true
+        case .materialChanged(let instanceID):
+            plan.changedMaterials.insert(instanceID)
+        }
+        return plan
     }
 }

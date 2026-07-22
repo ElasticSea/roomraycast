@@ -117,6 +117,7 @@ actor Renderer {
     var isReflectiveSphereUniformReady = false
     var lastRayTracingRoomTransform: ModelTransformSnapshot?
     var isRayTracingRoomTransformDirty = true
+    var isRayTracingBuildInFlight = false
     var anchoredPlacementTransform: matrix_float4x4?
     var anchoredScale: Float = 1
 
@@ -171,7 +172,6 @@ actor Renderer {
             fatalError("Unable to load imported model. Error info: \(error)")
         }
 
-        var rayTracingGeometrySources: [RayTracingTriangleGeometrySource] = []
         for (meshIndex, renderMesh) in meshes.enumerated() {
             let geometryID = RayTracingGeometryID.roomMesh(meshIndex)
             let geometrySource = try! RayTracingTriangleGeometrySource(id: geometryID,
@@ -182,7 +182,6 @@ actor Renderer {
             rayTracingScene.registerGeometryBuffers(buffers, for: geometryID)
             rayTracingScene.markDirty(.geometryChanged(geometryID))
             rayTracingScene.markDirty(.instanceAdded(.roomMesh(meshIndex)))
-            rayTracingGeometrySources.append(geometrySource)
         }
         let sphereGeometrySource = try! RayTracingTriangleGeometrySource(id: .reflectiveSphere,
                                                                          mesh: reflectiveSphereMesh)
@@ -192,13 +191,6 @@ actor Renderer {
         rayTracingScene.registerGeometryBuffers(sphereBuffers, for: .reflectiveSphere)
         rayTracingScene.markDirty(.geometryChanged(.reflectiveSphere))
         rayTracingScene.markDirty(.instanceAdded(.reflectiveSphere))
-        rayTracingGeometrySources.append(sphereGeometrySource)
-
-        let bottomLevelStructures = try! rayTracingAccelerationBuilder
-            .buildBottomLevelStructures(for: rayTracingGeometrySources)
-        for (geometryID, structure) in bottomLevelStructures {
-            rayTracingScene.setBottomLevelStructure(structure, for: geometryID)
-        }
 
         uniformsPerFrameSize = alignedUniformsSize * max(meshes.count + 1, 1)
         let uniformBufferSize = uniformsPerFrameSize * maxBuffersInFlight
@@ -609,7 +601,7 @@ actor Renderer {
 
         self.updateGameState()
         rayTracingScene.schedulePendingEvents()
-        self.updateRayTracingAccelerationStructuresIfNeeded()
+        self.scheduleRayTracingAccelerationStructureUpdateIfNeeded()
 
         frame.endUpdate()
 
@@ -632,7 +624,9 @@ actor Renderer {
         frame.endSubmission()
     }
 
-    private func updateRayTracingAccelerationStructuresIfNeeded() {
+    private func scheduleRayTracingAccelerationStructureUpdateIfNeeded() {
+        guard !isRayTracingBuildInFlight else { return }
+
         var instances: [RayTracingInstanceSource] = []
         for meshIndex in meshes.indices {
             let instanceID = RayTracingInstanceID.roomMesh(meshIndex)
@@ -652,19 +646,31 @@ actor Renderer {
 
         guard let plan = rayTracingScene.consumeRebuildPlan() else { return }
 
+        isRayTracingBuildInFlight = true
+        Task { [self] in
+            await performRayTracingAccelerationStructureUpdate(plan: plan,
+                                                               instances: instances)
+        }
+    }
+
+    private func performRayTracingAccelerationStructureUpdate(
+        plan: RayTracingRebuildPlan,
+        instances: [RayTracingInstanceSource]
+    ) async {
+        defer { isRayTracingBuildInFlight = false }
         do {
             if !plan.bottomLevelGeometry.isEmpty {
                 let sources = plan.bottomLevelGeometry.compactMap {
                     rayTracingScene.geometrySources[$0]
                 }
-                let rebuiltStructures = try rayTracingAccelerationBuilder
+                let rebuiltStructures = try await rayTracingAccelerationBuilder
                     .buildBottomLevelStructures(for: sources)
                 for (geometryID, structure) in rebuiltStructures {
                     rayTracingScene.setBottomLevelStructure(structure, for: geometryID)
                 }
             }
 
-            let topLevelBuild = try rayTracingAccelerationBuilder.buildTopLevelStructure(
+            let topLevelBuild = try await rayTracingAccelerationBuilder.buildTopLevelStructure(
                 instances: instances,
                 bottomLevelStructures: rayTracingScene.bottomLevelStructures)
             rayTracingScene.setTopLevelStructure(topLevelBuild.structure,

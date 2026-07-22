@@ -96,7 +96,7 @@ final class RayTracingAccelerationBuilder {
 
     func buildBottomLevelStructures(
         for sources: [RayTracingTriangleGeometrySource]
-    ) throws -> [RayTracingGeometryID: MTLAccelerationStructure] {
+    ) async throws -> [RayTracingGeometryID: MTLAccelerationStructure] {
         guard let commandBuffer = commandQueue.makeCommandBuffer() else {
             throw RayTracingAccelerationBuilderError.commandBufferUnavailable
         }
@@ -145,7 +145,7 @@ final class RayTracingAccelerationBuilder {
 
         encoder.endEncoding()
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
 
         if commandBuffer.status == .error {
             throw RayTracingAccelerationBuilderError.commandFailed(
@@ -158,7 +158,7 @@ final class RayTracingAccelerationBuilder {
     func buildTopLevelStructure(
         instances: [RayTracingInstanceSource],
         bottomLevelStructures: [RayTracingGeometryID: MTLAccelerationStructure]
-    ) throws -> RayTracingTopLevelBuild {
+    ) async throws -> RayTracingTopLevelBuild {
         guard !instances.isEmpty else {
             throw RayTracingAccelerationBuilderError.invalidMesh
         }
@@ -217,7 +217,7 @@ final class RayTracingAccelerationBuilder {
                       scratchBufferOffset: 0)
         encoder.endEncoding()
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
 
         if commandBuffer.status == .error {
             throw RayTracingAccelerationBuilderError.commandFailed(

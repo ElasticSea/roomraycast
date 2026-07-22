@@ -75,6 +75,10 @@ final class RayTracingScene: @unchecked Sendable {
     private var pendingEvents: Set<RayTracingSceneEvent> = []
     private var scheduledPlan: RayTracingRebuildPlan?
 
+    var isReady: Bool {
+        buildState == .ready && topLevelStructure != nil
+    }
+
     init(device: MTLDevice) {
         self.device = device
     }

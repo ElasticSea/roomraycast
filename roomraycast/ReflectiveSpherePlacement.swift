@@ -20,4 +20,17 @@ struct ReflectiveSpherePlacement {
         spawnHeadTransform = deviceAnchor.originFromAnchorTransform
         return true
     }
+
+    @discardableResult
+    func placeSphereIfPossible(_ sphere: inout ReflectiveSphere) -> Bool {
+        guard sphere.originFromSphereTransform == nil,
+              let spawnHeadTransform else {
+            return false
+        }
+
+        var headFromSphereTransform = matrix_identity_float4x4
+        headFromSphereTransform.columns.3.z = -ReflectiveSphere.spawnDistance
+        sphere.originFromSphereTransform = spawnHeadTransform * headFromSphereTransform
+        return true
+    }
 }

@@ -15,6 +15,7 @@ struct PureReflectionMaterial: Sendable, Equatable {
 struct ReflectiveSphere: Sendable {
     static let diameter: Float = 0.25
     static let radius: Float = diameter / 2
+    static let spawnDistance: Float = 0.5
 
     var originFromSphereTransform: matrix_float4x4?
     var material = PureReflectionMaterial()

@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		590A259A301101DD0052941A /* RealityKitContent in Frameworks */ = {isa = PBXBuildFile; productRef = 590A2599301101DD0052941A /* RealityKitContent */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		590A2594301101DD0052941A /* roomraycast.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = roomraycast.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		590A2598301101DD0052941A /* RealityKitContent */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = RealityKitContent; sourceTree = "<group>"; };
@@ -41,7 +37,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				590A259A301101DD0052941A /* RealityKitContent in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -93,7 +88,6 @@
 			);
 			name = roomraycast;
 			packageProductDependencies = (
-				590A2599301101DD0052941A /* RealityKitContent */,
 			);
 			productName = roomraycast;
 			productReference = 590A2594301101DD0052941A /* roomraycast.app */;
@@ -358,12 +352,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		590A2599301101DD0052941A /* RealityKitContent */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = RealityKitContent;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 590A258C301101DD0052941A /* Project object */;
 }

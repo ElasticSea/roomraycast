@@ -8,6 +8,7 @@
 import CompositorServices
 import Metal
 import MetalKit
+import ModelIO
 import simd
 
 // The 256 byte aligned size of our uniform structure
@@ -56,6 +57,17 @@ final class RendererTaskExecutor: TaskExecutor {
 
 actor Renderer {
 
+    struct RenderMesh {
+        let mesh: MTKMesh
+        let assetTransform: matrix_float4x4
+        let baseColorTextures: [MTLTexture?]
+    }
+
+    struct LoadedModel {
+        let meshes: [RenderMesh]
+        let normalizationTransform: matrix_float4x4
+    }
+
     let device: MTLDevice
     let commandQueue: MTL4CommandQueue
     let commandBuffer: MTL4CommandBuffer
@@ -68,6 +80,7 @@ actor Renderer {
     #endif
 
     let dynamicUniformBuffer: MTLBuffer
+    let uniformsPerFrameSize: Int
     let pipelineState: MTLRenderPipelineState
     let depthState: MTLDepthStencilState
     let colorMap: MTLTexture
@@ -79,19 +92,16 @@ actor Renderer {
 
     var uniformBufferIndex = 0
 
-    var uniforms: UnsafeMutablePointer<Uniforms>
-
     var perDrawableTarget = [LayerRenderer.Drawable.Target: DrawableTarget]()
 
-    var rotation: Float = 0
-
-    var mesh: MTKMesh
+    let meshes: [RenderMesh]
+    let modelNormalizationTransform: matrix_float4x4
 
     let worldTracking: WorldTrackingProvider
     let layerRenderer: LayerRenderer
     let appModel: AppModel
 
-    init(_ layerRenderer: LayerRenderer, appModel: AppModel) {
+    init(_ layerRenderer: LayerRenderer, appModel: AppModel, modelURL: URL) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
         self.appModel = appModel
@@ -120,16 +130,23 @@ actor Renderer {
         self.endFrameEvent.signaledValue = UInt64(maxBuffersInFlight)
         committedFrameIndex = UInt64(maxBuffersInFlight)
 
-        let uniformBufferSize = alignedUniformsSize * maxBuffersInFlight
+        let mtlVertexDescriptor = Self.buildMetalVertexDescriptor()
 
+        do {
+            let loadedModel = try Self.loadModel(device: device,
+                                                 modelURL: modelURL,
+                                                 mtlVertexDescriptor: mtlVertexDescriptor)
+            meshes = loadedModel.meshes
+            modelNormalizationTransform = loadedModel.normalizationTransform
+        } catch {
+            fatalError("Unable to load imported model. Error info: \(error)")
+        }
+
+        uniformsPerFrameSize = alignedUniformsSize * max(meshes.count, 1)
+        let uniformBufferSize = uniformsPerFrameSize * maxBuffersInFlight
         self.dynamicUniformBuffer = self.device.makeBuffer(length: uniformBufferSize,
                                                            options: [MTLResourceOptions.storageModeShared])!
-
         self.dynamicUniformBuffer.label = "UniformBuffer"
-
-        uniforms = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()).bindMemory(to: Uniforms.self, capacity: 1)
-
-        let mtlVertexDescriptor = Self.buildMetalVertexDescriptor()
 
         do {
             pipelineState = try Self.buildRenderPipeline(device: device,
@@ -142,12 +159,6 @@ actor Renderer {
         self.depthState = Self.buildDepthStencilState(device: device)
 
         do {
-            mesh = try Self.buildMesh(device: device, mtlVertexDescriptor: mtlVertexDescriptor)
-        } catch {
-            fatalError("Unable to build MetalKit Mesh. Error info: \(error)")
-        }
-
-        do {
             colorMap = try Self.loadTexture(device: device, textureName: "ColorMap")
         } catch {
             fatalError("Unable to load texture. Error info: \(error)")
@@ -156,10 +167,20 @@ actor Renderer {
         #if !targetEnvironment(simulator)
         // Add all persistent resources to the command queue residency set,
         // must be done after loading all resources.
-        residencySetDesc.initialCapacity = mesh.vertexBuffers.count + mesh.submeshes.count + 2 // color map + uniforms buffer
+        let vertexBuffers = meshes.flatMap { renderMesh in
+            renderMesh.mesh.vertexBuffers.map { $0.buffer }
+        }
+        let indexBuffers = meshes.flatMap { renderMesh in
+            renderMesh.mesh.submeshes.map { $0.indexBuffer.buffer }
+        }
+        let modelTextures = meshes.flatMap { renderMesh in
+            renderMesh.baseColorTextures.compactMap { $0 }
+        }
+        residencySetDesc.initialCapacity = vertexBuffers.count + indexBuffers.count + modelTextures.count + 2
         let residencySet = try! self.device.makeResidencySet(descriptor: residencySetDesc)
-        residencySet.addAllocations(mesh.vertexBuffers.map { $0.buffer })
-        residencySet.addAllocations(mesh.submeshes.map { $0.indexBuffer.buffer })
+        residencySet.addAllocations(vertexBuffers)
+        residencySet.addAllocations(indexBuffers)
+        residencySet.addAllocations(modelTextures)
         residencySet.addAllocations([colorMap, dynamicUniformBuffer])
         residencySet.commit()
         commandQueueResidencySet = residencySet
@@ -178,9 +199,12 @@ actor Renderer {
     }
 
     @MainActor
-    static func startRenderLoop(_ layerRenderer: LayerRenderer, appModel: AppModel, arSession: ARKitSession) {
+    static func startRenderLoop(_ layerRenderer: LayerRenderer,
+                                appModel: AppModel,
+                                arSession: ARKitSession,
+                                modelURL: URL) {
         Task(executorPreference: RendererTaskExecutor.shared) {
-            let renderer = Renderer(layerRenderer, appModel: appModel)
+            let renderer = Renderer(layerRenderer, appModel: appModel, modelURL: modelURL)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
         }
@@ -243,18 +267,10 @@ actor Renderer {
         return device.makeDepthStencilState(descriptor: depthStateDescriptor)!
     }
 
-    static func buildMesh(device: MTLDevice,
-                          mtlVertexDescriptor: MTLVertexDescriptor) throws -> MTKMesh {
-        /// Create and condition mesh data to feed into a pipeline using the given vertex descriptor
-
+    static func loadModel(device: MTLDevice,
+                          modelURL: URL,
+                          mtlVertexDescriptor: MTLVertexDescriptor) throws -> LoadedModel {
         let metalAllocator = MTKMeshBufferAllocator(device: device)
-
-        let mdlMesh = MDLMesh.newBox(withDimensions: SIMD3<Float>(4, 4, 4),
-                                     segments: SIMD3<UInt32>(2, 2, 2),
-                                     geometryType: MDLGeometryType.triangles,
-                                     inwardNormals: false,
-                                     allocator: metalAllocator)
-
         let mdlVertexDescriptor = MTKModelIOVertexDescriptorFromMetal(mtlVertexDescriptor)
 
         guard let attributes = mdlVertexDescriptor.attributes as? [MDLVertexAttribute] else {
@@ -263,9 +279,67 @@ actor Renderer {
         attributes[VertexAttribute.position.rawValue].name = MDLVertexAttributePosition
         attributes[VertexAttribute.texcoord.rawValue].name = MDLVertexAttributeTextureCoordinate
 
-        mdlMesh.vertexDescriptor = mdlVertexDescriptor
+        let asset = MDLAsset(url: modelURL,
+                             vertexDescriptor: mdlVertexDescriptor,
+                             bufferAllocator: metalAllocator)
+        asset.loadTextures()
 
-        return try MTKMesh(mesh: mdlMesh, device: device)
+        let convertedMeshes = try MTKMesh.newMeshes(asset: asset, device: device)
+        guard !convertedMeshes.metalKitMeshes.isEmpty else {
+            throw RendererError.badVertexDescriptor
+        }
+
+        let textureLoader = MTKTextureLoader(device: device)
+        let textureOptions: [MTKTextureLoader.Option: Any] = [
+            .generateMipmaps: true,
+            .origin: MTKTextureLoader.Origin.bottomLeft,
+            .textureUsage: NSNumber(value: MTLTextureUsage.shaderRead.rawValue),
+            .textureStorageMode: NSNumber(value: MTLStorageMode.private.rawValue)
+        ]
+
+        let renderMeshes = zip(convertedMeshes.modelIOMeshes,
+                               convertedMeshes.metalKitMeshes).map { modelIOMesh, metalKitMesh in
+            let modelIOSubmeshes = (modelIOMesh.submeshes as? [MDLSubmesh]) ?? []
+            let baseColorTextures = modelIOSubmeshes.map { submesh in
+                Self.loadBaseColorTexture(material: submesh.material,
+                                          textureLoader: textureLoader,
+                                          options: textureOptions)
+            }
+
+            return RenderMesh(mesh: metalKitMesh,
+                              assetTransform: MDLTransform.globalTransform(with: modelIOMesh, atTime: 0),
+                              baseColorTextures: baseColorTextures)
+        }
+
+        let bounds = asset.boundingBox
+        let minimum = bounds.minBounds
+        let maximum = bounds.maxBounds
+        let size = maximum - minimum
+        let largestDimension = max(size.x, max(size.y, size.z))
+        let safeDimension = largestDimension.isFinite && largestDimension > 0.0001 ? largestDimension : 1
+        let scale = 2.0 / safeDimension
+        let center = (minimum + maximum) * 0.5
+
+        let normalizationTransform = matrix4x4_translation(0, 0, -2.5)
+            * matrix4x4_scale(scale)
+            * matrix4x4_translation(-center.x, -center.y, -center.z)
+
+        return LoadedModel(meshes: renderMeshes,
+                           normalizationTransform: normalizationTransform)
+    }
+
+    static func loadBaseColorTexture(material: MDLMaterial?,
+                                     textureLoader: MTKTextureLoader,
+                                     options: [MTKTextureLoader.Option: Any]) -> MTLTexture? {
+        guard let property = material?.property(with: .baseColor) else { return nil }
+
+        if let modelTexture = property.textureSamplerValue?.texture {
+            return try? textureLoader.newTexture(texture: modelTexture, options: options)
+        }
+        if let textureURL = property.urlValue {
+            return try? textureLoader.newTexture(URL: textureURL, options: options)
+        }
+        return nil
     }
 
     static func loadTexture(device: MTLDevice,
@@ -290,9 +364,7 @@ actor Renderer {
 
         uniformBufferIndex = (uniformBufferIndex + 1) % maxBuffersInFlight
 
-        uniformBufferOffset = alignedUniformsSize * uniformBufferIndex
-
-        uniforms = UnsafeMutableRawPointer(dynamicUniformBuffer.contents() + uniformBufferOffset).bindMemory(to: Uniforms.self, capacity: 1)
+        uniformBufferOffset = uniformsPerFrameSize * uniformBufferIndex
 
         /// Reset resources used in previous frame
 
@@ -308,16 +380,13 @@ actor Renderer {
     }
 
     private func updateGameState() {
-        /// Update any game state before rendering
-
-        let rotationAxis = SIMD3<Float>(1, 1, 0)
-        let modelRotationMatrix = matrix4x4_rotation(radians: rotation, axis: rotationAxis)
-        let modelTranslationMatrix = matrix4x4_translation(0.0, 0.0, -8.0)
-        let modelMatrix = modelTranslationMatrix * modelRotationMatrix
-
-        self.uniforms[0].modelMatrix = modelMatrix
-
-        rotation += 0.01
+        for (meshIndex, renderMesh) in meshes.enumerated() {
+            let pointer = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()
+                                                  + uniformBufferOffset
+                                                  + alignedUniformsSize * meshIndex)
+                .bindMemory(to: Uniforms.self, capacity: 1)
+            pointer[0].modelMatrix = modelNormalizationTransform * renderMesh.assetTransform
+        }
     }
 
     func renderFrame() {
@@ -425,7 +494,7 @@ actor Renderer {
 
         renderEncoder.label = "Primary Render Encoder"
 
-        renderEncoder.pushDebugGroup("Draw Box")
+        renderEncoder.pushDebugGroup("Draw Imported Model")
 
         renderEncoder.setCullMode(.back)
 
@@ -450,29 +519,42 @@ actor Renderer {
         renderEncoder.setArgumentTable(self.vertexArgumentTable, stages: .vertex)
         renderEncoder.setArgumentTable(self.fragmentArgumentTable, stages: .fragment)
 
-        self.vertexArgumentTable.setAddress(dynamicUniformBuffer.gpuAddress + UInt64(uniformBufferOffset), index: BufferIndex.uniforms.rawValue)
-
         self.vertexArgumentTable.setAddress(drawableTarget.viewProjectionBuffer.gpuAddress + UInt64(drawableTarget.viewProjectionBufferOffset), index: BufferIndex.viewProjection.rawValue)
-
-        for (index, element) in mesh.vertexDescriptor.layouts.enumerated() {
-            guard let layout = element as? MDLVertexBufferLayout else {
-                fatalError("unsupported layout")
-            }
-
-            if layout.stride != 0 {
-                let buffer = mesh.vertexBuffers[index]
-                self.vertexArgumentTable.setAddress(buffer.buffer.gpuAddress + UInt64(buffer.offset), index: index)
-            }
-        }
 
         self.fragmentArgumentTable.setTexture(colorMap.gpuResourceID, index: TextureIndex.color.rawValue)
 
-        for submesh in mesh.submeshes {
-            renderEncoder.drawIndexedPrimitives(primitiveType: submesh.primitiveType,
-                                                indexCount: submesh.indexCount,
-                                                indexType: submesh.indexType,
-                                                indexBuffer: submesh.indexBuffer.buffer.gpuAddress + UInt64(submesh.indexBuffer.offset),
-                                                indexBufferLength: submesh.indexBuffer.buffer.length)
+        for (meshIndex, renderMesh) in meshes.enumerated() {
+            let mesh = renderMesh.mesh
+            self.vertexArgumentTable.setAddress(dynamicUniformBuffer.gpuAddress
+                                                + UInt64(uniformBufferOffset)
+                                                + UInt64(alignedUniformsSize * meshIndex),
+                                                index: BufferIndex.uniforms.rawValue)
+
+            for (index, element) in mesh.vertexDescriptor.layouts.enumerated() {
+                guard let layout = element as? MDLVertexBufferLayout else {
+                    fatalError("unsupported layout")
+                }
+
+                if layout.stride != 0 {
+                    let buffer = mesh.vertexBuffers[index]
+                    self.vertexArgumentTable.setAddress(buffer.buffer.gpuAddress + UInt64(buffer.offset),
+                                                        index: index)
+                }
+            }
+
+            for (submeshIndex, submesh) in mesh.submeshes.enumerated() {
+                let baseColorTexture = renderMesh.baseColorTextures.indices.contains(submeshIndex)
+                    ? renderMesh.baseColorTextures[submeshIndex]
+                    : nil
+                self.fragmentArgumentTable.setTexture((baseColorTexture ?? colorMap).gpuResourceID,
+                                                      index: TextureIndex.color.rawValue)
+
+                renderEncoder.drawIndexedPrimitives(primitiveType: submesh.primitiveType,
+                                                    indexCount: submesh.indexCount,
+                                                    indexType: submesh.indexType,
+                                                    indexBuffer: submesh.indexBuffer.buffer.gpuAddress + UInt64(submesh.indexBuffer.offset),
+                                                    indexBufferLength: submesh.indexBuffer.buffer.length)
+            }
         }
 
         renderEncoder.popDebugGroup()
@@ -607,4 +689,11 @@ nonisolated func matrix4x4_translation(_ translationX: Float, _ translationY: Fl
                            vector_float4(0, 1, 0, 0),
                            vector_float4(0, 0, 1, 0),
                            vector_float4(translationX, translationY, translationZ, 1)))
+}
+
+nonisolated func matrix4x4_scale(_ scale: Float) -> matrix_float4x4 {
+    .init(columns: (vector_float4(scale, 0, 0, 0),
+                    vector_float4(0, scale, 0, 0),
+                    vector_float4(0, 0, scale, 0),
+                    vector_float4(0, 0, 0, 1)))
 }

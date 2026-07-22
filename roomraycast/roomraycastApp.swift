@@ -15,7 +15,11 @@ struct ImmersiveSpaceContent: CompositorContent {
 
     var body: some CompositorContent {
         CompositorLayer(configuration: self) { @MainActor layerRenderer in
-            Renderer.startRenderLoop(layerRenderer, appModel: appModel, arSession: ARKitSession())
+            guard let modelURL = appModel.importedModelURL else { return }
+            Renderer.startRenderLoop(layerRenderer,
+                                     appModel: appModel,
+                                     arSession: ARKitSession(),
+                                     modelURL: modelURL)
         }
     }
 }
@@ -48,6 +52,6 @@ struct roomraycastApp: App {
         ImmersiveSpace(id: appModel.immersiveSpaceID) {
             ImmersiveSpaceContent(appModel: appModel)
         }
-        .immersionStyle(selection: .constant(.full), in: .full)
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
     }
 }

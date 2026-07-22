@@ -12,6 +12,7 @@ import SwiftUI
 @Observable
 class AppModel {
     let immersiveSpaceID = "ImmersiveSpace"
+    let modelTransform = ModelTransformState()
 
     private var securityScopedModelURL: URL?
 
@@ -48,5 +49,6 @@ class AppModel {
         securityScopedModelURL?.stopAccessingSecurityScopedResource()
         securityScopedModelURL = sourceURL
         importedModelURL = sourceURL
+        modelTransform.reset()
     }
 }

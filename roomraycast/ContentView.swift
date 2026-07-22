@@ -17,10 +17,18 @@ struct ContentView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        Button("Open") {
-            isImporting = true
+        VStack(spacing: 12) {
+            Button("Open") {
+                isImporting = true
+            }
+            .fontWeight(.semibold)
+
+            if appModel.importedModelURL != nil {
+                Divider()
+                RoomManipulationControls(modelTransform: appModel.modelTransform)
+            }
         }
-        .fontWeight(.semibold)
+        .padding()
         .disabled(appModel.immersiveSpaceState == .inTransition)
         .fileImporter(isPresented: $isImporting,
                       allowedContentTypes: [.usdz]) { result in

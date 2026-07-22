@@ -100,11 +100,16 @@ actor Renderer {
     let worldTracking: WorldTrackingProvider
     let layerRenderer: LayerRenderer
     let appModel: AppModel
+    let modelTransform: ModelTransformState
 
-    init(_ layerRenderer: LayerRenderer, appModel: AppModel, modelURL: URL) {
+    init(_ layerRenderer: LayerRenderer,
+         appModel: AppModel,
+         modelURL: URL,
+         modelTransform: ModelTransformState) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
         self.appModel = appModel
+        self.modelTransform = modelTransform
 
         let device = self.device
         self.commandQueue = layerRenderer.commandQueue
@@ -203,8 +208,12 @@ actor Renderer {
                                 appModel: AppModel,
                                 arSession: ARKitSession,
                                 modelURL: URL) {
+        let modelTransform = appModel.modelTransform
         Task(executorPreference: RendererTaskExecutor.shared) {
-            let renderer = Renderer(layerRenderer, appModel: appModel, modelURL: modelURL)
+            let renderer = Renderer(layerRenderer,
+                                    appModel: appModel,
+                                    modelURL: modelURL,
+                                    modelTransform: modelTransform)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
         }
@@ -320,8 +329,7 @@ actor Renderer {
         let scale = 2.0 / safeDimension
         let center = (minimum + maximum) * 0.5
 
-        let normalizationTransform = matrix4x4_translation(0, 0, -2.5)
-            * matrix4x4_scale(scale)
+        let normalizationTransform = matrix4x4_scale(scale)
             * matrix4x4_translation(-center.x, -center.y, -center.z)
 
         return LoadedModel(meshes: renderMeshes,
@@ -380,12 +388,21 @@ actor Renderer {
     }
 
     private func updateGameState() {
+        let adjustment = modelTransform.snapshot()
+        let placementTransform = matrix4x4_translation(adjustment.translation.x,
+                                                       adjustment.translation.y,
+                                                       adjustment.translation.z - 2.5)
+            * matrix4x4_rotation(radians: adjustment.yaw, axis: SIMD3<Float>(0, 1, 0))
+            * matrix4x4_scale(adjustment.scale)
+
         for (meshIndex, renderMesh) in meshes.enumerated() {
             let pointer = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()
                                                   + uniformBufferOffset
                                                   + alignedUniformsSize * meshIndex)
                 .bindMemory(to: Uniforms.self, capacity: 1)
-            pointer[0].modelMatrix = modelNormalizationTransform * renderMesh.assetTransform
+            pointer[0].modelMatrix = placementTransform
+                * modelNormalizationTransform
+                * renderMesh.assetTransform
         }
     }
 

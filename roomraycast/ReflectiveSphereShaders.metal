@@ -120,7 +120,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
             float2 uv = uv0 * weight0 + uv1 * barycentric.x + uv2 * barycentric.y;
 
             half4 roomColor = roomTextures[min(geometry.textureIndex, 63u)]
-                .sample(roomSampler, uv);
+                .sample(roomSampler, uv, level(0.0));
             return float4(float3(roomColor.rgb) * throughput, 1.0);
         }
 

@@ -104,6 +104,7 @@ actor Renderer {
     let modelTransform: ModelTransformState
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
+    var reflectiveSpherePlacement = ReflectiveSpherePlacement()
     var anchoredPlacementTransform: matrix_float4x4?
     var anchoredScale: Float = 1
 
@@ -517,6 +518,7 @@ actor Renderer {
     func render(drawable: LayerRenderer.Drawable, frameIndex: UInt64) {
         let time = drawable.frameTiming.presentationTime.timeInterval
         let deviceAnchor = worldTracking.queryDeviceAnchor(atTimestamp: time)
+        reflectiveSpherePlacement.captureFirstTrackedHeadPose(from: deviceAnchor)
 
         drawable.deviceAnchor = deviceAnchor
 

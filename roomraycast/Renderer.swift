@@ -80,6 +80,7 @@ actor Renderer {
     #endif
 
     let dynamicUniformBuffer: MTLBuffer
+    let reflectiveMaterialBuffer: MTLBuffer
     let uniformsPerFrameSize: Int
     let pipelineState: MTLRenderPipelineState
     let reflectiveSpherePipelineState: MTLRenderPipelineState
@@ -107,6 +108,7 @@ actor Renderer {
     var savedRecord: AnchoredModelRecord?
     var reflectiveSphere = ReflectiveSphere()
     var reflectiveSpherePlacement = ReflectiveSpherePlacement()
+    var isReflectiveSphereUniformReady = false
     var anchoredPlacementTransform: matrix_float4x4?
     var anchoredScale: Float = 1
 
@@ -131,7 +133,7 @@ actor Renderer {
         let argTableDesc = MTL4ArgumentTableDescriptor()
         argTableDesc.maxBufferBindCount = 4
         self.vertexArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
-        argTableDesc.maxBufferBindCount = 0
+        argTableDesc.maxBufferBindCount = BufferIndex.material.rawValue + 1
         argTableDesc.maxTextureBindCount = 1
         self.fragmentArgumentTable = try! device.makeArgumentTable(descriptor: argTableDesc)
 
@@ -159,11 +161,23 @@ actor Renderer {
             fatalError("Unable to load imported model. Error info: \(error)")
         }
 
-        uniformsPerFrameSize = alignedUniformsSize * max(meshes.count, 1)
+        uniformsPerFrameSize = alignedUniformsSize * max(meshes.count + 1, 1)
         let uniformBufferSize = uniformsPerFrameSize * maxBuffersInFlight
         self.dynamicUniformBuffer = self.device.makeBuffer(length: uniformBufferSize,
                                                            options: [MTLResourceOptions.storageModeShared])!
         self.dynamicUniformBuffer.label = "UniformBuffer"
+
+        self.reflectiveMaterialBuffer = self.device.makeBuffer(
+            length: MemoryLayout<PureReflectionMaterialUniforms>.stride,
+            options: [MTLResourceOptions.storageModeShared])!
+        self.reflectiveMaterialBuffer.label = "Pure Reflection Material"
+        let materialPointer = self.reflectiveMaterialBuffer.contents()
+            .bindMemory(to: PureReflectionMaterialUniforms.self, capacity: 1)
+        let material = PureReflectionMaterial()
+        materialPointer.pointee.reflectivity = material.reflectivity
+        materialPointer.pointee.roughness = material.roughness
+        materialPointer.pointee.metallic = material.metallic
+        materialPointer.pointee.diffuseContribution = material.diffuseContribution
 
         do {
             pipelineState = try Self.buildRenderPipeline(device: device,
@@ -197,12 +211,21 @@ actor Renderer {
         let modelTextures = meshes.flatMap { renderMesh in
             renderMesh.baseColorTextures.compactMap { $0 }
         }
-        residencySetDesc.initialCapacity = vertexBuffers.count + indexBuffers.count + modelTextures.count + 2
+        let sphereVertexBuffers = reflectiveSphereMesh.vertexBuffers.map { $0.buffer }
+        let sphereIndexBuffers = reflectiveSphereMesh.submeshes.map { $0.indexBuffer.buffer }
+        residencySetDesc.initialCapacity = vertexBuffers.count
+            + indexBuffers.count
+            + modelTextures.count
+            + sphereVertexBuffers.count
+            + sphereIndexBuffers.count
+            + 3
         let residencySet = try! self.device.makeResidencySet(descriptor: residencySetDesc)
         residencySet.addAllocations(vertexBuffers)
         residencySet.addAllocations(indexBuffers)
         residencySet.addAllocations(modelTextures)
-        residencySet.addAllocations([colorMap, dynamicUniformBuffer])
+        residencySet.addAllocations(sphereVertexBuffers)
+        residencySet.addAllocations(sphereIndexBuffers)
+        residencySet.addAllocations([colorMap, dynamicUniformBuffer, reflectiveMaterialBuffer])
         residencySet.commit()
         commandQueueResidencySet = residencySet
         commandQueue.addResidencySet(residencySet)
@@ -488,6 +511,16 @@ actor Renderer {
                 * modelNormalizationTransform
                 * renderMesh.assetTransform
         }
+
+        isReflectiveSphereUniformReady = false
+        if let sphereTransform = reflectiveSphere.originFromSphereTransform {
+            let spherePointer = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()
+                                                        + uniformBufferOffset
+                                                        + alignedUniformsSize * meshes.count)
+                .bindMemory(to: Uniforms.self, capacity: 1)
+            spherePointer[0].modelMatrix = sphereTransform
+            isReflectiveSphereUniformReady = true
+        }
     }
 
     nonisolated private static func placementTransform(for adjustment: ModelTransformSnapshot,
@@ -670,6 +703,41 @@ actor Renderer {
         }
 
         renderEncoder.popDebugGroup()
+
+        if isReflectiveSphereUniformReady {
+            renderEncoder.pushDebugGroup("Draw Pure Reflection Sphere")
+            renderEncoder.setRenderPipelineState(reflectiveSpherePipelineState)
+
+            self.vertexArgumentTable.setAddress(dynamicUniformBuffer.gpuAddress
+                                                + UInt64(uniformBufferOffset)
+                                                + UInt64(alignedUniformsSize * meshes.count),
+                                                index: BufferIndex.uniforms.rawValue)
+            self.fragmentArgumentTable.setAddress(reflectiveMaterialBuffer.gpuAddress,
+                                                  index: BufferIndex.material.rawValue)
+
+            for (index, element) in reflectiveSphereMesh.vertexDescriptor.layouts.enumerated() {
+                guard let layout = element as? MDLVertexBufferLayout else {
+                    fatalError("unsupported sphere layout")
+                }
+
+                if layout.stride != 0 {
+                    let buffer = reflectiveSphereMesh.vertexBuffers[index]
+                    self.vertexArgumentTable.setAddress(buffer.buffer.gpuAddress + UInt64(buffer.offset),
+                                                        index: index)
+                }
+            }
+
+            for submesh in reflectiveSphereMesh.submeshes {
+                renderEncoder.drawIndexedPrimitives(primitiveType: submesh.primitiveType,
+                                                    indexCount: submesh.indexCount,
+                                                    indexType: submesh.indexType,
+                                                    indexBuffer: submesh.indexBuffer.buffer.gpuAddress
+                                                        + UInt64(submesh.indexBuffer.offset),
+                                                    indexBufferLength: submesh.indexBuffer.buffer.length)
+            }
+
+            renderEncoder.popDebugGroup()
+        }
 
         renderEncoder.endEncoding()
 

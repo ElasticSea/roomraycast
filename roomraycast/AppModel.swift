@@ -13,6 +13,7 @@ import SwiftUI
 class AppModel {
     let immersiveSpaceID = "ImmersiveSpace"
     let modelTransform = ModelTransformState()
+    let roomVisibility = RoomVisibilityState()
 
     private var securityScopedModelURL: URL?
 
@@ -23,6 +24,9 @@ class AppModel {
     }
 
     var immersiveSpaceState = ImmersiveSpaceState.closed
+    var isRoomVisible = true {
+        didSet { roomVisibility.setVisible(isRoomVisible) }
+    }
     var importedModelURL: URL?
     private(set) var anchoredModelURL: URL?
     private(set) var savedAnchoredModels: [AnchoredModelRecord] = []

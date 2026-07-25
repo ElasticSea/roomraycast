@@ -112,6 +112,7 @@ actor Renderer {
     let layerRenderer: LayerRenderer
     let appModel: AppModel
     let modelTransform: ModelTransformState
+    let roomVisibility: RoomVisibilityState
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
     var reflectiveSphere = ReflectiveSphere()
@@ -131,11 +132,13 @@ actor Renderer {
          appModel: AppModel,
          modelURL: URL,
          modelTransform: ModelTransformState,
+         roomVisibility: RoomVisibilityState,
          restoredAnchor: AnchoredModelRecord?) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
         self.appModel = appModel
         self.modelTransform = modelTransform
+        self.roomVisibility = roomVisibility
         self.modelURL = modelURL
         self.savedRecord = restoredAnchor
 
@@ -377,12 +380,14 @@ actor Renderer {
                                 arSession: ARKitSession,
                                 modelURL: URL) {
         let modelTransform = appModel.modelTransform
+        let roomVisibility = appModel.roomVisibility
         let restoredAnchor = appModel.activeAnchoredModel
         Task(executorPreference: RendererTaskExecutor.shared) {
             let renderer = Renderer(layerRenderer,
                                     appModel: appModel,
                                     modelURL: modelURL,
                                     modelTransform: modelTransform,
+                                    roomVisibility: roomVisibility,
                                     restoredAnchor: restoredAnchor)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
@@ -865,7 +870,8 @@ actor Renderer {
 
         self.fragmentArgumentTable.setTexture(colorMap.gpuResourceID, index: TextureIndex.color.rawValue)
 
-        for (meshIndex, renderMesh) in meshes.enumerated() {
+        let isRoomVisible = roomVisibility.snapshot()
+        for (meshIndex, renderMesh) in meshes.enumerated() where isRoomVisible {
             let mesh = renderMesh.mesh
             self.vertexArgumentTable.setAddress(dynamicUniformBuffer.gpuAddress
                                                 + UInt64(uniformBufferOffset)

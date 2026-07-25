@@ -40,6 +40,11 @@ struct ContentView: View {
                 Divider()
                 RoomManipulationControls(modelTransform: appModel.modelTransform)
 
+                Toggle("Show Room", isOn: Binding(
+                    get: { appModel.isRoomVisible },
+                    set: { appModel.isRoomVisible = $0 }
+                ))
+
                 Button("Anchor") {
                     Task { @MainActor in
                         do {

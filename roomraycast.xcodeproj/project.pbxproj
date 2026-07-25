@@ -39,6 +39,7 @@
 				ReflectiveSphereShaders.metal = sourcecode.metal;
 				RightHandPinchTracker.swift = sourcecode.swift;
 				RoomManipulation.swift = sourcecode.swift;
+				RoomVisibility.swift = sourcecode.swift;
 			};
 			path = roomraycast;
 			sourceTree = "<group>";

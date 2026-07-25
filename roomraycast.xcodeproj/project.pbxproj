@@ -32,6 +32,8 @@
 				RayTracingAccelerationBuilder.swift = sourcecode.swift;
 				RayTracingHitData.swift = sourcecode.swift;
 				RayTracingScene.swift = sourcecode.swift;
+				ReflectiveObjectKind.swift = sourcecode.swift;
+				ReflectiveObjectMesh.swift = sourcecode.swift;
 				ReflectiveSphere.swift = sourcecode.swift;
 				ReflectiveSphereGrabController.swift = sourcecode.swift;
 				ReflectiveSphereMesh.swift = sourcecode.swift;
@@ -42,6 +44,11 @@
 				RoomVisibility.swift = sourcecode.swift;
 			};
 			path = roomraycast;
+			sourceTree = "<group>";
+		};
+		590A25B0301101DF0052941A /* meshes */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = meshes;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -61,6 +68,7 @@
 			isa = PBXGroup;
 			children = (
 				590A2596301101DD0052941A /* roomraycast */,
+				590A25B0301101DF0052941A /* meshes */,
 				590A2597301101DD0052941A /* Packages */,
 				590A2595301101DD0052941A /* Products */,
 			);
@@ -99,6 +107,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				590A2596301101DD0052941A /* roomraycast */,
+				590A25B0301101DF0052941A /* meshes */,
 			);
 			name = roomraycast;
 			packageProductDependencies = (

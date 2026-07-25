@@ -20,6 +20,7 @@ nonisolated let maxRayTracingTextures = 64
 
 enum RendererError: Error {
     case badVertexDescriptor
+    case missingReflectiveObjectAsset(String)
 }
 
 extension MTLDevice {
@@ -102,7 +103,7 @@ actor Renderer {
 
     let meshes: [RenderMesh]
     let modelNormalizationTransform: matrix_float4x4
-    let reflectiveSphereMesh: MTKMesh
+    let reflectiveObjectMeshes: [ReflectiveObjectKind: ReflectiveObjectMesh]
     let rayTracingScene: RayTracingScene
     let rayTracingAccelerationBuilder: RayTracingAccelerationBuilder
     let rayTracingHitDataBuffers: RayTracingHitDataBuffers
@@ -113,6 +114,7 @@ actor Renderer {
     let appModel: AppModel
     let modelTransform: ModelTransformState
     let roomVisibility: RoomVisibilityState
+    let reflectiveObjectSelection: ReflectiveObjectSelectionState
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
     var reflectiveSphere = ReflectiveSphere()
@@ -121,6 +123,7 @@ actor Renderer {
     var rightHandPinchTracker = RightHandPinchTracker()
     var rightHandPinchFrame = RightHandPinchFrame.unavailable
     var isReflectiveSphereUniformReady = false
+    var reflectiveObjectKind: ReflectiveObjectKind
     var lastRayTracingRoomTransform: ModelTransformSnapshot?
     var isRayTracingRoomTransformDirty = true
     var isRayTracingBuildInFlight = false
@@ -133,17 +136,20 @@ actor Renderer {
          modelURL: URL,
          modelTransform: ModelTransformState,
          roomVisibility: RoomVisibilityState,
+         reflectiveObjectSelection: ReflectiveObjectSelectionState,
          restoredAnchor: AnchoredModelRecord?) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
         self.appModel = appModel
         self.modelTransform = modelTransform
         self.roomVisibility = roomVisibility
+        self.reflectiveObjectSelection = reflectiveObjectSelection
+        self.reflectiveObjectKind = reflectiveObjectSelection.snapshot()
         self.modelURL = modelURL
         self.savedRecord = restoredAnchor
 
         let device = self.device
-        self.reflectiveSphereMesh = try! ReflectiveSphereMesh.make(device: device)
+        self.reflectiveObjectMeshes = try! ReflectiveObjectMesh.makeAll(device: device)
         self.rayTracingScene = RayTracingScene(device: device)
         self.rayTracingAccelerationBuilder = try! RayTracingAccelerationBuilder(device: device)
         self.commandQueue = layerRenderer.commandQueue
@@ -195,13 +201,18 @@ actor Renderer {
             rayTracingScene.markDirty(.geometryChanged(geometryID))
             rayTracingScene.markDirty(.instanceAdded(.roomMesh(meshIndex)))
         }
-        let sphereGeometrySource = try! RayTracingTriangleGeometrySource(id: .reflectiveSphere,
-                                                                         mesh: reflectiveSphereMesh)
-        let sphereBuffers = reflectiveSphereMesh.vertexBuffers.map { $0.buffer }
-            + reflectiveSphereMesh.submeshes.map { $0.indexBuffer.buffer }
-        rayTracingScene.registerGeometrySource(sphereGeometrySource)
-        rayTracingScene.registerGeometryBuffers(sphereBuffers, for: .reflectiveSphere)
-        rayTracingScene.markDirty(.geometryChanged(.reflectiveSphere))
+        for kind in ReflectiveObjectKind.allCases {
+            let geometryID = RayTracingGeometryID.reflectiveObject(kind)
+            guard let reflectiveObjectMesh = reflectiveObjectMeshes[kind] else { continue }
+            let geometrySource = try! RayTracingTriangleGeometrySource(
+                id: geometryID,
+                mesh: reflectiveObjectMesh.mesh)
+            let buffers = reflectiveObjectMesh.mesh.vertexBuffers.map { $0.buffer }
+                + reflectiveObjectMesh.mesh.submeshes.map { $0.indexBuffer.buffer }
+            rayTracingScene.registerGeometrySource(geometrySource)
+            rayTracingScene.registerGeometryBuffers(buffers, for: geometryID)
+            rayTracingScene.markDirty(.geometryChanged(geometryID))
+        }
         rayTracingScene.markDirty(.instanceAdded(.reflectiveSphere))
 
         uniformsPerFrameSize = alignedUniformsSize * max(meshes.count + 1, 1)
@@ -282,20 +293,24 @@ actor Renderer {
         let modelTextures = meshes.flatMap { renderMesh in
             renderMesh.baseColorTextures.compactMap { $0 }
         }
-        let sphereVertexBuffers = reflectiveSphereMesh.vertexBuffers.map { $0.buffer }
-        let sphereIndexBuffers = reflectiveSphereMesh.submeshes.map { $0.indexBuffer.buffer }
+        let reflectiveObjectVertexBuffers = reflectiveObjectMeshes.values.flatMap {
+            $0.mesh.vertexBuffers.map(\.buffer)
+        }
+        let reflectiveObjectIndexBuffers = reflectiveObjectMeshes.values.flatMap {
+            $0.mesh.submeshes.map { $0.indexBuffer.buffer }
+        }
         residencySetDesc.initialCapacity = vertexBuffers.count
             + indexBuffers.count
             + modelTextures.count
-            + sphereVertexBuffers.count
-            + sphereIndexBuffers.count
+            + reflectiveObjectVertexBuffers.count
+            + reflectiveObjectIndexBuffers.count
             + 9
         let residencySet = try! self.device.makeResidencySet(descriptor: residencySetDesc)
         residencySet.addAllocations(vertexBuffers)
         residencySet.addAllocations(indexBuffers)
         residencySet.addAllocations(modelTextures)
-        residencySet.addAllocations(sphereVertexBuffers)
-        residencySet.addAllocations(sphereIndexBuffers)
+        residencySet.addAllocations(reflectiveObjectVertexBuffers)
+        residencySet.addAllocations(reflectiveObjectIndexBuffers)
         residencySet.addAllocations([
             colorMap,
             dynamicUniformBuffer,
@@ -381,6 +396,7 @@ actor Renderer {
                                 modelURL: URL) {
         let modelTransform = appModel.modelTransform
         let roomVisibility = appModel.roomVisibility
+        let reflectiveObjectSelection = appModel.reflectiveObjectSelection
         let restoredAnchor = appModel.activeAnchoredModel
         Task(executorPreference: RendererTaskExecutor.shared) {
             let renderer = Renderer(layerRenderer,
@@ -388,6 +404,7 @@ actor Renderer {
                                     modelURL: modelURL,
                                     modelTransform: modelTransform,
                                     roomVisibility: roomVisibility,
+                                    reflectiveObjectSelection: reflectiveObjectSelection,
                                     restoredAnchor: restoredAnchor)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
@@ -582,6 +599,10 @@ actor Renderer {
     }
 
     private func updateGameState() {
+        let requestedObjectKind = reflectiveObjectSelection.snapshot()
+        let didChangeReflectiveObject = requestedObjectKind != reflectiveObjectKind
+        reflectiveObjectKind = requestedObjectKind
+
         let adjustment = modelTransform.snapshot()
         let roomTransformChanged = isRayTracingRoomTransformDirty
             || lastRayTracingRoomTransform != adjustment
@@ -619,9 +640,25 @@ actor Renderer {
                                                         + uniformBufferOffset
                                                         + alignedUniformsSize * meshes.count)
                 .bindMemory(to: Uniforms.self, capacity: 1)
-            spherePointer[0].modelMatrix = sphereTransform
+            let objectTransform = reflectiveObjectTransform(placement: sphereTransform)
+            spherePointer[0].modelMatrix = objectTransform
+            if didChangeReflectiveObject {
+                rayTracingScene.setInstanceTransform(objectTransform, for: .reflectiveSphere)
+                rayTracingHitDataBuffers.setObjectTransform(
+                    objectTransform,
+                    sphereRadius: ReflectiveSphere.radius,
+                    at: meshes.count)
+                rayTracingScene.markDirty(.instanceAdded(.reflectiveSphere))
+            }
             isReflectiveSphereUniformReady = true
         }
+    }
+
+    private func reflectiveObjectTransform(placement: matrix_float4x4) -> matrix_float4x4 {
+        guard let reflectiveObjectMesh = reflectiveObjectMeshes[reflectiveObjectKind] else {
+            return placement
+        }
+        return placement * reflectiveObjectMesh.localTransform
     }
 
     nonisolated private static func placementTransform(for adjustment: ModelTransformSnapshot,
@@ -689,7 +726,7 @@ actor Renderer {
             return
         }
         instances.append(RayTracingInstanceSource(id: .reflectiveSphere,
-                                                  geometryID: .reflectiveSphere,
+                                                  geometryID: .reflectiveObject(reflectiveObjectKind),
                                                   transform: sphereTransform,
                                                   mask: 0x2))
 
@@ -763,8 +800,9 @@ actor Renderer {
                                                                   sphere: &reflectiveSphere)
         if (didPlaceSphere || didMoveSphere),
            let sphereTransform = reflectiveSphere.originFromSphereTransform {
-            rayTracingScene.setInstanceTransform(sphereTransform, for: .reflectiveSphere)
-            rayTracingHitDataBuffers.setObjectTransform(sphereTransform,
+            let objectTransform = reflectiveObjectTransform(placement: sphereTransform)
+            rayTracingScene.setInstanceTransform(objectTransform, for: .reflectiveSphere)
+            rayTracingHitDataBuffers.setObjectTransform(objectTransform,
                                                         sphereRadius: ReflectiveSphere.radius,
                                                         at: meshes.count)
             rayTracingScene.markDirty(.transformChanged(.reflectiveSphere))
@@ -924,19 +962,22 @@ actor Renderer {
             self.fragmentArgumentTable.setAddress(reflectiveMaterialBuffer.gpuAddress,
                                                   index: BufferIndex.material.rawValue)
 
-            for (index, element) in reflectiveSphereMesh.vertexDescriptor.layouts.enumerated() {
+            guard let reflectiveObjectMesh = reflectiveObjectMeshes[reflectiveObjectKind]?.mesh else {
+                fatalError("Missing selected reflective object mesh")
+            }
+            for (index, element) in reflectiveObjectMesh.vertexDescriptor.layouts.enumerated() {
                 guard let layout = element as? MDLVertexBufferLayout else {
-                    fatalError("unsupported sphere layout")
+                    fatalError("unsupported reflective object layout")
                 }
 
                 if layout.stride != 0 {
-                    let buffer = reflectiveSphereMesh.vertexBuffers[index]
+                    let buffer = reflectiveObjectMesh.vertexBuffers[index]
                     self.vertexArgumentTable.setAddress(buffer.buffer.gpuAddress + UInt64(buffer.offset),
                                                         index: index)
                 }
             }
 
-            for submesh in reflectiveSphereMesh.submeshes {
+            for submesh in reflectiveObjectMesh.submeshes {
                 renderEncoder.drawIndexedPrimitives(primitiveType: submesh.primitiveType,
                                                     indexCount: submesh.indexCount,
                                                     indexType: submesh.indexType,

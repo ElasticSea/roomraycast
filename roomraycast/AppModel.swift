@@ -14,6 +14,7 @@ class AppModel {
     let immersiveSpaceID = "ImmersiveSpace"
     let modelTransform = ModelTransformState()
     let roomVisibility = RoomVisibilityState()
+    let reflectiveObjectSelection = ReflectiveObjectSelectionState()
 
     private var securityScopedModelURL: URL?
 
@@ -26,6 +27,9 @@ class AppModel {
     var immersiveSpaceState = ImmersiveSpaceState.closed
     var isRoomVisible = true {
         didSet { roomVisibility.setVisible(isRoomVisible) }
+    }
+    var reflectiveObjectKind = ReflectiveObjectKind.sphere {
+        didSet { reflectiveObjectSelection.select(reflectiveObjectKind) }
     }
     var importedModelURL: URL?
     private(set) var anchoredModelURL: URL?

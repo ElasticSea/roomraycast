@@ -45,6 +45,16 @@ struct ContentView: View {
                     set: { appModel.isRoomVisible = $0 }
                 ))
 
+                Picker("Reflective Object", selection: Binding(
+                    get: { appModel.reflectiveObjectKind },
+                    set: { appModel.reflectiveObjectKind = $0 }
+                )) {
+                    ForEach(ReflectiveObjectKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 Button("Anchor") {
                     Task { @MainActor in
                         do {

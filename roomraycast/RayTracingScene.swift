@@ -8,7 +8,7 @@ import simd
 
 enum RayTracingGeometryID: Hashable, Sendable {
     case roomMesh(Int)
-    case reflectiveSphere
+    case reflectiveObject(ReflectiveObjectKind)
 }
 
 enum RayTracingInstanceID: Hashable, Sendable {

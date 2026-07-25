@@ -49,16 +49,25 @@ struct RightHandPinchTracker {
         let thumbTip = skeleton.joint(.thumbTip)
         let indexTip = skeleton.joint(.indexFingerTip)
         let wrist = skeleton.joint(.wrist)
-        guard thumbTip.isTracked, indexTip.isTracked, wrist.isTracked else {
+        guard wrist.isTracked else {
             return trackingUnavailableFrame()
+        }
+
+        let originFromDriverTransform = handAnchor.originFromAnchorTransform
+            * wrist.anchorFromJointTransform
+        guard thumbTip.isTracked, indexTip.isTracked else {
+            let phase: RightHandPinchPhase = isPinching ? .pinching : .unavailable
+            return RightHandPinchFrame(
+                phase: phase,
+                midpoint: nil,
+                fingerDistance: nil,
+                originFromDriverTransform: originFromDriverTransform)
         }
 
         let thumbPosition = worldPosition(of: thumbTip, handAnchor: handAnchor)
         let indexPosition = worldPosition(of: indexTip, handAnchor: handAnchor)
         let midpoint = (thumbPosition + indexPosition) * 0.5
         let distance = simd_distance(thumbPosition, indexPosition)
-        let originFromDriverTransform = handAnchor.originFromAnchorTransform
-            * wrist.anchorFromJointTransform
 
         if isPinching {
             if distance >= exitDistance {

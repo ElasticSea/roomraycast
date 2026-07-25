@@ -32,7 +32,7 @@ struct RightHandPinchTracker {
 
     private var isPinching = false
 
-    init(enterDistance: Float = 0.025, exitDistance: Float = 0.04) {
+    init(enterDistance: Float = 0.025, exitDistance: Float = 0.0325) {
         precondition(enterDistance < exitDistance)
         self.enterDistance = enterDistance
         self.exitDistance = exitDistance

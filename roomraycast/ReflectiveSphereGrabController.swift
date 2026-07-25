@@ -9,7 +9,7 @@ struct ReflectiveSphereGrabController {
     let collisionTolerance: Float
 
     private(set) var isGrabbed = false
-    private var sphereFromPinchOffset = SIMD3<Float>.zero
+    private var driverFromSphereTransform = matrix_identity_float4x4
 
     init(collisionTolerance: Float = 0.02) {
         self.collisionTolerance = collisionTolerance
@@ -19,9 +19,13 @@ struct ReflectiveSphereGrabController {
                          sphere: inout ReflectiveSphere) -> Bool {
         switch pinch.phase {
         case .began:
-            return beginGrabIfPossible(midpoint: pinch.midpoint, sphere: sphere)
+            return beginGrabIfPossible(midpoint: pinch.midpoint,
+                                       originFromDriverTransform: pinch.originFromDriverTransform,
+                                       sphere: sphere)
         case .pinching:
-            return moveGrabbedSphere(midpoint: pinch.midpoint, sphere: &sphere)
+            return moveGrabbedSphere(
+                originFromDriverTransform: pinch.originFromDriverTransform,
+                sphere: &sphere)
         case .ended, .unavailable:
             endGrab()
             return false
@@ -31,8 +35,10 @@ struct ReflectiveSphereGrabController {
     }
 
     private mutating func beginGrabIfPossible(midpoint: SIMD3<Float>?,
+                                              originFromDriverTransform: matrix_float4x4?,
                                               sphere: ReflectiveSphere) -> Bool {
         guard let midpoint,
+              let originFromDriverTransform,
               let transform = sphere.originFromSphereTransform else {
             return false
         }
@@ -45,34 +51,38 @@ struct ReflectiveSphereGrabController {
             return false
         }
 
-        sphereFromPinchOffset = sphereCenter - midpoint
+        driverFromSphereTransform = originFromDriverTransform.inverse * transform
         isGrabbed = true
         return false
     }
 
-    private mutating func moveGrabbedSphere(midpoint: SIMD3<Float>?,
+    private mutating func moveGrabbedSphere(originFromDriverTransform: matrix_float4x4?,
                                             sphere: inout ReflectiveSphere) -> Bool {
         guard isGrabbed,
-              let midpoint,
-              var transform = sphere.originFromSphereTransform else {
+              let originFromDriverTransform,
+              let transform = sphere.originFromSphereTransform else {
             return false
         }
 
-        let newCenter = midpoint + sphereFromPinchOffset
-        let oldCenter = SIMD3<Float>(transform.columns.3.x,
-                                     transform.columns.3.y,
-                                     transform.columns.3.z)
-        guard simd_distance(oldCenter, newCenter) > 0.0001 else {
+        let newTransform = originFromDriverTransform * driverFromSphereTransform
+        guard transformChanged(transform, newTransform) else {
             return false
         }
 
-        transform.columns.3 = SIMD4<Float>(newCenter.x, newCenter.y, newCenter.z, 1)
-        sphere.originFromSphereTransform = transform
+        sphere.originFromSphereTransform = newTransform
         return true
     }
 
     private mutating func endGrab() {
         isGrabbed = false
-        sphereFromPinchOffset = .zero
+        driverFromSphereTransform = matrix_identity_float4x4
+    }
+
+    private func transformChanged(_ old: matrix_float4x4,
+                                  _ new: matrix_float4x4) -> Bool {
+        simd_distance(old.columns.0, new.columns.0) > 0.0001
+            || simd_distance(old.columns.1, new.columns.1) > 0.0001
+            || simd_distance(old.columns.2, new.columns.2) > 0.0001
+            || simd_distance(old.columns.3, new.columns.3) > 0.0001
     }
 }

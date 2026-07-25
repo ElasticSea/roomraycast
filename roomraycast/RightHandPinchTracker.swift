@@ -18,10 +18,12 @@ struct RightHandPinchFrame: Sendable {
     let phase: RightHandPinchPhase
     let midpoint: SIMD3<Float>?
     let fingerDistance: Float?
+    let originFromDriverTransform: matrix_float4x4?
 
     static let unavailable = RightHandPinchFrame(phase: .unavailable,
                                                   midpoint: nil,
-                                                  fingerDistance: nil)
+                                                  fingerDistance: nil,
+                                                  originFromDriverTransform: nil)
 }
 
 struct RightHandPinchTracker {
@@ -54,29 +56,38 @@ struct RightHandPinchTracker {
         let indexPosition = worldPosition(of: indexTip, handAnchor: handAnchor)
         let midpoint = (thumbPosition + indexPosition) * 0.5
         let distance = simd_distance(thumbPosition, indexPosition)
+        var originFromDriverTransform = handAnchor.originFromAnchorTransform
+        originFromDriverTransform.columns.3 = SIMD4<Float>(midpoint.x,
+                                                            midpoint.y,
+                                                            midpoint.z,
+                                                            1)
 
         if isPinching {
             if distance >= exitDistance {
                 isPinching = false
                 return RightHandPinchFrame(phase: .ended,
                                            midpoint: midpoint,
-                                           fingerDistance: distance)
+                                           fingerDistance: distance,
+                                           originFromDriverTransform: originFromDriverTransform)
             }
             return RightHandPinchFrame(phase: .pinching,
                                        midpoint: midpoint,
-                                       fingerDistance: distance)
+                                       fingerDistance: distance,
+                                       originFromDriverTransform: originFromDriverTransform)
         }
 
         if distance <= enterDistance {
             isPinching = true
             return RightHandPinchFrame(phase: .began,
                                        midpoint: midpoint,
-                                       fingerDistance: distance)
+                                       fingerDistance: distance,
+                                       originFromDriverTransform: originFromDriverTransform)
         }
 
         return RightHandPinchFrame(phase: .open,
                                    midpoint: midpoint,
-                                   fingerDistance: distance)
+                                   fingerDistance: distance,
+                                   originFromDriverTransform: originFromDriverTransform)
     }
 
     private mutating func trackingUnavailableFrame() -> RightHandPinchFrame {
@@ -84,7 +95,8 @@ struct RightHandPinchTracker {
         isPinching = false
         return RightHandPinchFrame(phase: phase,
                                    midpoint: nil,
-                                   fingerDistance: nil)
+                                   fingerDistance: nil,
+                                   originFromDriverTransform: nil)
     }
 
     private func worldPosition(of joint: HandSkeleton.Joint,

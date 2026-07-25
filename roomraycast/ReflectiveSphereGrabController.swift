@@ -13,7 +13,7 @@ struct ReflectiveSphereGrabController {
     private var driverFromSphereTransform = matrix_identity_float4x4
 
     init(collisionTolerance: Float = 0.02,
-         smoothingRetention: Float = 0.95) {
+         smoothingRetention: Float = 0.99) {
         precondition(smoothingRetention >= 0 && smoothingRetention < 1)
         self.collisionTolerance = collisionTolerance
         self.smoothingRetention = smoothingRetention

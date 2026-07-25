@@ -48,7 +48,8 @@ struct RightHandPinchTracker {
 
         let thumbTip = skeleton.joint(.thumbTip)
         let indexTip = skeleton.joint(.indexFingerTip)
-        guard thumbTip.isTracked, indexTip.isTracked else {
+        let wrist = skeleton.joint(.wrist)
+        guard thumbTip.isTracked, indexTip.isTracked, wrist.isTracked else {
             return trackingUnavailableFrame()
         }
 
@@ -56,11 +57,8 @@ struct RightHandPinchTracker {
         let indexPosition = worldPosition(of: indexTip, handAnchor: handAnchor)
         let midpoint = (thumbPosition + indexPosition) * 0.5
         let distance = simd_distance(thumbPosition, indexPosition)
-        var originFromDriverTransform = handAnchor.originFromAnchorTransform
-        originFromDriverTransform.columns.3 = SIMD4<Float>(midpoint.x,
-                                                            midpoint.y,
-                                                            midpoint.z,
-                                                            1)
+        let originFromDriverTransform = handAnchor.originFromAnchorTransform
+            * wrist.anchorFromJointTransform
 
         if isPinching {
             if distance >= exitDistance {

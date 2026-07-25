@@ -50,11 +50,12 @@ struct ReflectiveObjectMesh {
         let asset = MDLAsset(url: url,
                              vertexDescriptor: vertexDescriptor,
                              bufferAllocator: allocator)
-        let convertedMeshes = try MTKMesh.newMeshes(asset: asset, device: device)
-        guard let mesh = convertedMeshes.metalKitMeshes.first,
-              let modelMesh = convertedMeshes.modelIOMeshes.first else {
+        guard let modelMesh = asset.childObjects(of: MDLMesh.self).first as? MDLMesh else {
             throw RendererError.badVertexDescriptor
         }
+        modelMesh.addNormals(withAttributeNamed: MDLVertexAttributeNormal,
+                             creaseThreshold: 0)
+        let mesh = try MTKMesh(mesh: modelMesh, device: device)
 
         let bounds = asset.boundingBox
         let minimum = bounds.minBounds

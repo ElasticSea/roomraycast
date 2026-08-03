@@ -43,6 +43,9 @@ class AppModel {
     var reflectiveObjectColor = Color.white {
         didSet { updateReflectiveObjectMaterial() }
     }
+    var reflectionMissColor = Color.white {
+        didSet { updateReflectiveObjectMaterial() }
+    }
     var importedModelURL: URL?
     private(set) var anchoredModelURL: URL?
     private(set) var savedAnchoredModels: [AnchoredModelRecord] = []
@@ -82,10 +85,12 @@ class AppModel {
 
     private func updateReflectiveObjectMaterial() {
         let baseColor = rgbComponents(of: reflectiveObjectColor)
+        let missColor = rgbComponents(of: reflectionMissColor)
         reflectiveObjectMaterialState.set(
             roughness: Float(reflectiveObjectRoughness),
             metallic: Float(reflectiveObjectMetallic),
-            baseColor: baseColor)
+            baseColor: baseColor,
+            missColor: missColor)
     }
 
     private func rgbComponents(of color: Color) -> SIMD3<Float> {

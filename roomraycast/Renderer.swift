@@ -239,6 +239,7 @@ actor Renderer {
         materialPointer.pointee.metallic = material.metallic
         materialPointer.pointee.diffuseContribution = material.diffuseContribution
         materialPointer.pointee.baseColor = SIMD4<Float>(material.baseColor, 1)
+        materialPointer.pointee.missColor = SIMD4<Float>(material.missColor, 1)
 
         self.rayTracingSettingsBuffer = self.device.makeBuffer(
             length: MemoryLayout<RayTracingSettings>.stride,
@@ -621,6 +622,7 @@ actor Renderer {
         materialPointer.pointee.metallic = material.metallic
         materialPointer.pointee.diffuseContribution = material.diffuseContribution
         materialPointer.pointee.baseColor = SIMD4<Float>(material.baseColor, 1)
+        materialPointer.pointee.missColor = SIMD4<Float>(material.missColor, 1)
 
         let raySettings = rayTracingSettingsBuffer.contents()
             .bindMemory(to: RayTracingSettings.self, capacity: 1)

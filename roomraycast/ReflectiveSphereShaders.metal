@@ -69,9 +69,9 @@ fragment float4 reflectiveSphereFragment(
     return float4(applyObjectMaterial(chrome, material), 1.0);
 }
 
-static float3 rayMissColor()
+static float3 rayMissColor(constant PureReflectionMaterialUniforms &material)
 {
-    return float3(1.0);
+    return saturate(material.missColor.rgb);
 }
 
 fragment float4 rayTracedReflectiveSphereFragment(
@@ -108,7 +108,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
     for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
         auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
         if (intersection.type != intersection_type::triangle) {
-            return float4(applyObjectMaterial(rayMissColor() * throughput, material),
+            return float4(applyObjectMaterial(rayMissColor(material) * throughput, material),
                           1.0);
         }
 
@@ -166,5 +166,5 @@ fragment float4 rayTracedReflectiveSphereFragment(
         throughput *= material.reflectivity;
     }
 
-    return float4(applyObjectMaterial(throughput * rayMissColor(), material), 1.0);
+    return float4(applyObjectMaterial(throughput * rayMissColor(material), material), 1.0);
 }

@@ -73,6 +73,16 @@ struct ContentView: View {
                         .labelsHidden()
                     }
 
+                    HStack {
+                        Text("Miss Color")
+                        Spacer()
+                        ColorPicker("Miss Color", selection: Binding(
+                            get: { appModel.reflectionMissColor },
+                            set: { appModel.reflectionMissColor = $0 }
+                        ), supportsOpacity: false)
+                        .labelsHidden()
+                    }
+
                     Text("Roughness: \(appModel.reflectiveObjectRoughness, specifier: "%.2f")")
                     Slider(value: Binding(
                         get: { appModel.reflectiveObjectRoughness },

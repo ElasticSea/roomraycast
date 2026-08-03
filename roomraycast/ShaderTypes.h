@@ -74,6 +74,7 @@ typedef struct
     float metallic;
     float diffuseContribution;
     vector_float4 baseColor;
+    vector_float4 missColor;
 } PureReflectionMaterialUniforms;
 
 typedef struct

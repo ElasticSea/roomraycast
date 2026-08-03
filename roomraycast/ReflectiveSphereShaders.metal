@@ -113,7 +113,6 @@ fragment float4 rayTracedReflectiveSphereFragment(
                                   min_filter::linear,
                                   address::repeat);
     float3 throughput = float3(material.reflectivity);
-    float3 bounceLimitColor = proceduralReflectionColor(normal, throughput, material);
     uint ignoredInstanceIndex = uniforms.rayTracingData.x;
 
     uint bounceLimit = min(settings.maxBounces, 10u);
@@ -184,10 +183,36 @@ fragment float4 rayTracedReflectiveSphereFragment(
         }
         ignoredInstanceIndex = instanceIndex;
         throughput *= material.reflectivity;
-        bounceLimitColor = proceduralReflectionColor(hitNormal, throughput, material);
         reflectionRay.origin = hitPosition + hitNormal * settings.rayEpsilon;
         reflectionRay.direction = normalize(reflect(reflectionRay.direction, hitNormal));
     }
 
-    return float4(bounceLimitColor, 1.0);
+    auto roomIntersection = sceneIntersector.intersect(reflectionRay, scene, 0x1);
+    if (roomIntersection.type == intersection_type::triangle) {
+        uint instanceIndex = roomIntersection.instance_id;
+        RayTracingInstance hitInstance = instances[instanceIndex];
+        uint geometryIndex = hitInstance.geometryOffset + roomIntersection.geometry_id;
+        RayTracingGeometry geometry = geometries[geometryIndex];
+        uint triangleIndex = geometry.indexOffset + roomIntersection.primitive_id * 3;
+        uint vertexIndex0 = indices[triangleIndex];
+        uint vertexIndex1 = indices[triangleIndex + 1];
+        uint vertexIndex2 = indices[triangleIndex + 2];
+        float2 barycentric = roomIntersection.triangle_barycentric_coord;
+        float weight0 = 1.0 - barycentric.x - barycentric.y;
+        float2 uv0 = vertices[vertexIndex0].texCoordAndPadding.xy;
+        float2 uv1 = vertices[vertexIndex1].texCoordAndPadding.xy;
+        float2 uv2 = vertices[vertexIndex2].texCoordAndPadding.xy;
+        float2 uv = uv0 * weight0 + uv1 * barycentric.x + uv2 * barycentric.y;
+
+        uint textureIndex = min(geometry.textureIndex, 63u);
+        uint mipCount = roomTextures[textureIndex].get_num_mip_levels();
+        float maxMipLevel = float(max(mipCount, 1u) - 1u);
+        float mipLevel = saturate(material.roughness) * maxMipLevel;
+        half4 roomColor = roomTextures[textureIndex]
+            .sample(roomSampler, uv, level(mipLevel));
+        return float4(applyObjectMaterial(float3(roomColor.rgb) * throughput, material),
+                      1.0);
+    }
+
+    return float4(applyObjectMaterial(rayMissColor(material) * throughput, material), 1.0);
 }

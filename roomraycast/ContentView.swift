@@ -5,6 +5,7 @@
 //  Created by Elastic Sea on 7/22/26.
 //
 
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -75,17 +76,19 @@ struct ContentView: View {
         .padding()
         .disabled(appModel.immersiveSpaceState == .inTransition)
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
+            switch newPhase {
+            case .active:
                 appModel.refreshSavedAnchoredModels()
+            case .background:
+                exit(EXIT_SUCCESS)
+            case .inactive:
+                break
+            @unknown default:
+                break
             }
         }
         .onDisappear {
-            Task { @MainActor in
-                guard appModel.immersiveSpaceState != .closed else { return }
-                appModel.immersiveSpaceState = .inTransition
-                await dismissImmersiveSpace()
-                appModel.immersiveSpaceState = .closed
-            }
+            exit(EXIT_SUCCESS)
         }
         .fileImporter(isPresented: $isImporting,
                       allowedContentTypes: [.usdz]) { result in

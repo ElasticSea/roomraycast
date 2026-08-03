@@ -118,7 +118,7 @@ actor Renderer {
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
     var reflectiveObjects: [ReflectiveObject] = []
-    var pendingReflectiveObjectKinds: [ReflectiveObjectKind] = [.sphere]
+    var pendingReflectiveObjectKinds: [ReflectiveObjectKind] = []
     var reflectiveObjectGrabController = ReflectiveObjectGrabController()
     var reflectiveObjectPlacement = ReflectiveObjectPlacement()
     var leftHandPinchTracker = HandPinchTracker(side: .left)

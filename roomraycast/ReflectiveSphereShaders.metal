@@ -89,7 +89,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
                                   address::repeat);
     float3 throughput = float3(material.reflectivity);
 
-    uint bounceLimit = min(settings.maxBounces, 8u);
+    uint bounceLimit = min(settings.maxBounces, 10u);
     for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
         auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
         if (intersection.type != intersection_type::triangle) {

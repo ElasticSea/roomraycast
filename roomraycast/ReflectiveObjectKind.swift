@@ -43,3 +43,22 @@ nonisolated final class ReflectiveObjectSpawnState: @unchecked Sendable {
         return kinds
     }
 }
+
+nonisolated final class ReflectionBounceCountState: @unchecked Sendable {
+    static let range = 0...10
+
+    private let lock = NSLock()
+    private var value = 5
+
+    func snapshot() -> UInt32 {
+        lock.lock()
+        defer { lock.unlock() }
+        return UInt32(value)
+    }
+
+    func set(_ count: Int) {
+        lock.lock()
+        value = min(max(count, Self.range.lowerBound), Self.range.upperBound)
+        lock.unlock()
+    }
+}

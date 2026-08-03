@@ -115,6 +115,7 @@ actor Renderer {
     let modelTransform: ModelTransformState
     let roomVisibility: RoomVisibilityState
     let reflectiveObjectSpawns: ReflectiveObjectSpawnState
+    let reflectionBounceCountState: ReflectionBounceCountState
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
     var reflectiveObjects: [ReflectiveObject] = []
@@ -138,6 +139,7 @@ actor Renderer {
          modelTransform: ModelTransformState,
          roomVisibility: RoomVisibilityState,
          reflectiveObjectSpawns: ReflectiveObjectSpawnState,
+         reflectionBounceCountState: ReflectionBounceCountState,
          restoredAnchor: AnchoredModelRecord?) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
@@ -145,6 +147,7 @@ actor Renderer {
         self.modelTransform = modelTransform
         self.roomVisibility = roomVisibility
         self.reflectiveObjectSpawns = reflectiveObjectSpawns
+        self.reflectionBounceCountState = reflectionBounceCountState
         self.modelURL = modelURL
         self.savedRecord = restoredAnchor
 
@@ -239,7 +242,7 @@ actor Renderer {
         self.rayTracingSettingsBuffer.label = "Ray Tracing Settings"
         let raySettings = self.rayTracingSettingsBuffer.contents()
             .bindMemory(to: RayTracingSettings.self, capacity: 1)
-        raySettings.pointee.maxBounces = 5
+        raySettings.pointee.maxBounces = reflectionBounceCountState.snapshot()
         raySettings.pointee.maxDistance = 30
         raySettings.pointee.rayEpsilon = 0.002
         raySettings.pointee.padding = 0
@@ -396,6 +399,7 @@ actor Renderer {
         let modelTransform = appModel.modelTransform
         let roomVisibility = appModel.roomVisibility
         let reflectiveObjectSpawns = appModel.reflectiveObjectSpawns
+        let reflectionBounceCountState = appModel.reflectionBounceCountState
         let restoredAnchor = appModel.activeAnchoredModel
         Task(executorPreference: RendererTaskExecutor.shared) {
             let renderer = Renderer(layerRenderer,
@@ -404,6 +408,7 @@ actor Renderer {
                                     modelTransform: modelTransform,
                                     roomVisibility: roomVisibility,
                                     reflectiveObjectSpawns: reflectiveObjectSpawns,
+                                    reflectionBounceCountState: reflectionBounceCountState,
                                     restoredAnchor: restoredAnchor)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
@@ -602,6 +607,10 @@ actor Renderer {
     }
 
     private func updateGameState() {
+        let raySettings = rayTracingSettingsBuffer.contents()
+            .bindMemory(to: RayTracingSettings.self, capacity: 1)
+        raySettings.pointee.maxBounces = reflectionBounceCountState.snapshot()
+
         pendingReflectiveObjectKinds.append(contentsOf: reflectiveObjectSpawns.consumeAll())
         spawnPendingReflectiveObjectsIfPossible()
 

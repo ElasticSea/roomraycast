@@ -15,6 +15,7 @@ class AppModel {
     let modelTransform = ModelTransformState()
     let roomVisibility = RoomVisibilityState()
     let reflectiveObjectSpawns = ReflectiveObjectSpawnState()
+    let reflectionBounceCountState = ReflectionBounceCountState()
 
     private var securityScopedModelURL: URL?
 
@@ -27,6 +28,9 @@ class AppModel {
     var immersiveSpaceState = ImmersiveSpaceState.closed
     var isRoomVisible = true {
         didSet { roomVisibility.setVisible(isRoomVisible) }
+    }
+    var reflectionBounceCount = 5 {
+        didSet { reflectionBounceCountState.set(reflectionBounceCount) }
     }
     var importedModelURL: URL?
     private(set) var anchoredModelURL: URL?

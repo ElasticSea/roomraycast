@@ -54,6 +54,14 @@ struct ContentView: View {
                     }
                 }
 
+                VStack(alignment: .leading) {
+                    Text("Reflection Bounces: \(appModel.reflectionBounceCount)")
+                    Slider(value: Binding(
+                        get: { Double(appModel.reflectionBounceCount) },
+                        set: { appModel.reflectionBounceCount = Int($0) }
+                    ), in: 0...10, step: 1)
+                }
+
                 Button("Anchor") {
                     Task { @MainActor in
                         do {

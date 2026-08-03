@@ -35,6 +35,22 @@ static float3 applyObjectMaterial(float3 reflectionColor,
     return specular + diffuse;
 }
 
+static float3 proceduralReflectionColor(
+    float3 normal,
+    float3 throughput,
+    constant PureReflectionMaterialUniforms &material)
+{
+    float skyAmount = saturate(normal.y * 0.5 + 0.5);
+    float horizonBand = pow(saturate(1.0 - abs(normal.y)), 8.0);
+    float3 darkChrome = float3(0.025, 0.035, 0.055);
+    float3 brightChrome = float3(0.75, 0.86, 1.0);
+    float3 chrome = mix(darkChrome, brightChrome, skyAmount);
+    chrome += horizonBand * 0.35;
+    chrome = mix(chrome, float3(dot(chrome, float3(0.2126, 0.7152, 0.0722))),
+                 saturate(material.roughness) * 0.65);
+    return applyObjectMaterial(chrome * throughput, material);
+}
+
 vertex ReflectiveSphereVaryings reflectiveSphereVertex(
     ReflectiveSphereVertex in [[stage_in]],
     ushort ampID [[amplification_id]],
@@ -57,16 +73,10 @@ fragment float4 reflectiveSphereFragment(
     constant PureReflectionMaterialUniforms &material [[buffer(BufferIndexMaterial)]])
 {
     float3 normal = normalize(in.worldNormal);
-    float skyAmount = saturate(normal.y * 0.5 + 0.5);
-    float horizonBand = pow(saturate(1.0 - abs(normal.y)), 8.0);
-    float3 darkChrome = float3(0.025, 0.035, 0.055);
-    float3 brightChrome = float3(0.75, 0.86, 1.0);
-    float3 chrome = mix(darkChrome, brightChrome, skyAmount);
-    chrome += horizonBand * 0.35;
-    chrome *= material.reflectivity;
-    chrome = mix(chrome, float3(dot(chrome, float3(0.2126, 0.7152, 0.0722))),
-                 saturate(material.roughness) * 0.65);
-    return float4(applyObjectMaterial(chrome, material), 1.0);
+    return float4(proceduralReflectionColor(
+        normal,
+        float3(material.reflectivity),
+        material), 1.0);
 }
 
 static float3 rayMissColor(constant PureReflectionMaterialUniforms &material)
@@ -103,6 +113,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
                                   min_filter::linear,
                                   address::repeat);
     float3 throughput = float3(material.reflectivity);
+    float3 bounceLimitColor = proceduralReflectionColor(normal, throughput, material);
     uint ignoredInstanceIndex = uniforms.rayTracingData.x;
 
     uint bounceLimit = min(settings.maxBounces, 10u);
@@ -172,10 +183,11 @@ fragment float4 rayTracedReflectiveSphereFragment(
             hitNormal = -hitNormal;
         }
         ignoredInstanceIndex = instanceIndex;
+        throughput *= material.reflectivity;
+        bounceLimitColor = proceduralReflectionColor(hitNormal, throughput, material);
         reflectionRay.origin = hitPosition + hitNormal * settings.rayEpsilon;
         reflectionRay.direction = normalize(reflect(reflectionRay.direction, hitNormal));
-        throughput *= material.reflectivity;
     }
 
-    return float4(applyObjectMaterial(throughput * rayMissColor(material), material), 1.0);
+    return float4(bounceLimitColor, 1.0);
 }

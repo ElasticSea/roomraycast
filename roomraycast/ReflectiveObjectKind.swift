@@ -5,7 +5,7 @@
 
 import Foundation
 
-enum ReflectiveObjectKind: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum ReflectiveObjectKind: String, CaseIterable, Identifiable, Sendable {
     case sphere
     case monkey
     case teapot
@@ -25,19 +25,21 @@ enum ReflectiveObjectKind: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-final class ReflectiveObjectSelectionState: @unchecked Sendable {
+nonisolated final class ReflectiveObjectSpawnState: @unchecked Sendable {
     private let lock = NSLock()
-    private var value = ReflectiveObjectKind.sphere
+    private var pendingKinds: [ReflectiveObjectKind] = []
 
-    func snapshot() -> ReflectiveObjectKind {
+    func request(_ kind: ReflectiveObjectKind) {
         lock.lock()
-        defer { lock.unlock() }
-        return value
+        pendingKinds.append(kind)
+        lock.unlock()
     }
 
-    func select(_ kind: ReflectiveObjectKind) {
+    func consumeAll() -> [ReflectiveObjectKind] {
         lock.lock()
-        value = kind
-        lock.unlock()
+        defer { lock.unlock() }
+        let kinds = pendingKinds
+        pendingKinds.removeAll(keepingCapacity: true)
+        return kinds
     }
 }

@@ -5,12 +5,16 @@
 
 import simd
 
-struct ReflectiveSphereGrabController {
+nonisolated struct ReflectiveObjectGrabController {
+    private struct GrabState {
+        let objectID: ReflectiveObjectID
+        var driverFromObjectTransform: matrix_float4x4
+    }
+
     let collisionTolerance: Float
     let smoothingRetention: Float
 
-    private(set) var isGrabbed = false
-    private var driverFromSphereTransform = matrix_identity_float4x4
+    private var grabsByHand: [HandSide: GrabState] = [:]
 
     init(collisionTolerance: Float = 0.02,
          smoothingRetention: Float = 0.99) {
@@ -19,68 +23,82 @@ struct ReflectiveSphereGrabController {
         self.smoothingRetention = smoothingRetention
     }
 
-    mutating func update(pinch: RightHandPinchFrame,
-                         sphere: inout ReflectiveSphere) -> Bool {
+    mutating func update(hand: HandSide,
+                         pinch: HandPinchFrame,
+                         objects: inout [ReflectiveObject]) -> ReflectiveObjectID? {
         switch pinch.phase {
         case .began:
             return beginGrabIfPossible(midpoint: pinch.midpoint,
                                        originFromDriverTransform: pinch.originFromDriverTransform,
-                                       sphere: sphere)
+                                       hand: hand,
+                                       objects: objects)
         case .pinching:
-            return moveGrabbedSphere(
+            return moveGrabbedObject(
                 originFromDriverTransform: pinch.originFromDriverTransform,
-                sphere: &sphere)
+                hand: hand,
+                objects: &objects)
         case .ended, .unavailable:
-            endGrab()
-            return false
+            endGrab(for: hand)
+            return nil
         case .open:
-            return false
+            return nil
         }
     }
 
     private mutating func beginGrabIfPossible(midpoint: SIMD3<Float>?,
                                               originFromDriverTransform: matrix_float4x4?,
-                                              sphere: ReflectiveSphere) -> Bool {
+                                              hand: HandSide,
+                                              objects: [ReflectiveObject]) -> ReflectiveObjectID? {
         guard let midpoint,
-              let originFromDriverTransform,
-              let transform = sphere.originFromSphereTransform else {
-            return false
+              let originFromDriverTransform else {
+            return nil
         }
 
-        let sphereCenter = SIMD3<Float>(transform.columns.3.x,
-                                        transform.columns.3.y,
-                                        transform.columns.3.z)
-        guard simd_distance(midpoint, sphereCenter)
-                <= ReflectiveSphere.radius + collisionTolerance else {
-            return false
+        let closest = objects.compactMap { object -> (ReflectiveObject, Float)? in
+            let transform = object.originFromObjectTransform
+            let center = SIMD3<Float>(transform.columns.3.x,
+                                      transform.columns.3.y,
+                                      transform.columns.3.z)
+            let distance = simd_distance(midpoint, center)
+            guard distance <= ReflectiveObject.radius + collisionTolerance else { return nil }
+            return (object, distance)
+        }.min { $0.1 < $1.1 }
+        guard let object = closest?.0 else {
+            return nil
         }
 
-        driverFromSphereTransform = originFromDriverTransform.inverse * transform
-        isGrabbed = true
-        return false
+        grabsByHand = grabsByHand.filter { existingHand, grab in
+            existingHand == hand || grab.objectID != object.id
+        }
+        grabsByHand[hand] = GrabState(
+            objectID: object.id,
+            driverFromObjectTransform: originFromDriverTransform.inverse
+                * object.originFromObjectTransform)
+        return nil
     }
 
-    private mutating func moveGrabbedSphere(originFromDriverTransform: matrix_float4x4?,
-                                            sphere: inout ReflectiveSphere) -> Bool {
-        guard isGrabbed,
+    private mutating func moveGrabbedObject(originFromDriverTransform: matrix_float4x4?,
+                                            hand: HandSide,
+                                            objects: inout [ReflectiveObject]) -> ReflectiveObjectID? {
+        guard let grab = grabsByHand[hand],
               let originFromDriverTransform,
-              let transform = sphere.originFromSphereTransform else {
-            return false
+              let objectIndex = objects.firstIndex(where: { $0.id == grab.objectID }) else {
+            return nil
         }
 
-        let targetTransform = originFromDriverTransform * driverFromSphereTransform
+        let transform = objects[objectIndex].originFromObjectTransform
+        let targetTransform = originFromDriverTransform * grab.driverFromObjectTransform
         let newTransform = smooth(transform, toward: targetTransform)
         guard transformChanged(transform, newTransform) else {
-            return false
+            return nil
         }
 
-        sphere.originFromSphereTransform = newTransform
-        return true
+        objects[objectIndex].originFromObjectTransform = newTransform
+        return grab.objectID
     }
 
-    private mutating func endGrab() {
-        isGrabbed = false
-        driverFromSphereTransform = matrix_identity_float4x4
+    private mutating func endGrab(for hand: HandSide) {
+        grabsByHand.removeValue(forKey: hand)
     }
 
     private func smooth(_ transform: matrix_float4x4,

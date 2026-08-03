@@ -14,7 +14,7 @@ class AppModel {
     let immersiveSpaceID = "ImmersiveSpace"
     let modelTransform = ModelTransformState()
     let roomVisibility = RoomVisibilityState()
-    let reflectiveObjectSelection = ReflectiveObjectSelectionState()
+    let reflectiveObjectSpawns = ReflectiveObjectSpawnState()
 
     private var securityScopedModelURL: URL?
 
@@ -27,9 +27,6 @@ class AppModel {
     var immersiveSpaceState = ImmersiveSpaceState.closed
     var isRoomVisible = true {
         didSet { roomVisibility.setVisible(isRoomVisible) }
-    }
-    var reflectiveObjectKind = ReflectiveObjectKind.sphere {
-        didSet { reflectiveObjectSelection.select(reflectiveObjectKind) }
     }
     var importedModelURL: URL?
     private(set) var anchoredModelURL: URL?
@@ -62,6 +59,10 @@ class AppModel {
         }
         try? FileManager.default.removeItem(at: applicationSupportURL
             .appending(path: "ImportedModels", directoryHint: .isDirectory))
+    }
+
+    func spawnReflectiveObject(_ kind: ReflectiveObjectKind) {
+        reflectiveObjectSpawns.request(kind)
     }
 
     func importModel(from sourceURL: URL) throws {

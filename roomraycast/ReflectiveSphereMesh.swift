@@ -27,7 +27,7 @@ enum ReflectiveSphereMesh {
 
     static func make(device: MTLDevice) throws -> MTKMesh {
         let allocator = MTKMeshBufferAllocator(device: device)
-        let radii = SIMD3<Float>(repeating: ReflectiveSphere.radius)
+        let radii = SIMD3<Float>(repeating: ReflectiveObject.radius)
         let modelMesh = MDLMesh.newEllipsoid(withRadii: radii,
                                              radialSegments: 64,
                                              verticalSegments: 32,

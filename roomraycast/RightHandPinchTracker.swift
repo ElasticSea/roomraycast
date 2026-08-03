@@ -6,7 +6,12 @@
 import ARKit
 import simd
 
-enum RightHandPinchPhase: Sendable {
+nonisolated enum HandSide: Hashable, Sendable {
+    case left
+    case right
+}
+
+nonisolated enum HandPinchPhase: Sendable {
     case unavailable
     case open
     case began
@@ -14,33 +19,37 @@ enum RightHandPinchPhase: Sendable {
     case ended
 }
 
-struct RightHandPinchFrame: Sendable {
-    let phase: RightHandPinchPhase
+nonisolated struct HandPinchFrame: Sendable {
+    let phase: HandPinchPhase
     let midpoint: SIMD3<Float>?
     let fingerDistance: Float?
     let originFromDriverTransform: matrix_float4x4?
 
-    static let unavailable = RightHandPinchFrame(phase: .unavailable,
-                                                  midpoint: nil,
-                                                  fingerDistance: nil,
-                                                  originFromDriverTransform: nil)
+    static let unavailable = HandPinchFrame(phase: .unavailable,
+                                            midpoint: nil,
+                                            fingerDistance: nil,
+                                            originFromDriverTransform: nil)
 }
 
-struct RightHandPinchTracker {
+nonisolated struct HandPinchTracker {
+    let side: HandSide
     let enterDistance: Float
     let exitDistance: Float
 
     private var isPinching = false
 
-    init(enterDistance: Float = 0.0125, exitDistance: Float = 0.02) {
+    init(side: HandSide,
+         enterDistance: Float = 0.0125,
+         exitDistance: Float = 0.02) {
         precondition(enterDistance < exitDistance)
+        self.side = side
         self.enterDistance = enterDistance
         self.exitDistance = exitDistance
     }
 
-    mutating func update(with handAnchor: HandAnchor?) -> RightHandPinchFrame {
+    mutating func update(with handAnchor: HandAnchor?) -> HandPinchFrame {
         guard let handAnchor,
-              handAnchor.chirality == .right,
+              matchesExpectedSide(handAnchor.chirality),
               handAnchor.isTracked,
               let skeleton = handAnchor.handSkeleton else {
             return trackingUnavailableFrame()
@@ -56,8 +65,8 @@ struct RightHandPinchTracker {
         let originFromDriverTransform = handAnchor.originFromAnchorTransform
             * wrist.anchorFromJointTransform
         guard thumbTip.isTracked, indexTip.isTracked else {
-            let phase: RightHandPinchPhase = isPinching ? .pinching : .unavailable
-            return RightHandPinchFrame(
+            let phase: HandPinchPhase = isPinching ? .pinching : .unavailable
+            return HandPinchFrame(
                 phase: phase,
                 midpoint: nil,
                 fingerDistance: nil,
@@ -72,12 +81,12 @@ struct RightHandPinchTracker {
         if isPinching {
             if distance >= exitDistance {
                 isPinching = false
-                return RightHandPinchFrame(phase: .ended,
+                return HandPinchFrame(phase: .ended,
                                            midpoint: midpoint,
                                            fingerDistance: distance,
                                            originFromDriverTransform: originFromDriverTransform)
             }
-            return RightHandPinchFrame(phase: .pinching,
+            return HandPinchFrame(phase: .pinching,
                                        midpoint: midpoint,
                                        fingerDistance: distance,
                                        originFromDriverTransform: originFromDriverTransform)
@@ -85,25 +94,32 @@ struct RightHandPinchTracker {
 
         if distance <= enterDistance {
             isPinching = true
-            return RightHandPinchFrame(phase: .began,
+            return HandPinchFrame(phase: .began,
                                        midpoint: midpoint,
                                        fingerDistance: distance,
                                        originFromDriverTransform: originFromDriverTransform)
         }
 
-        return RightHandPinchFrame(phase: .open,
+        return HandPinchFrame(phase: .open,
                                    midpoint: midpoint,
                                    fingerDistance: distance,
                                    originFromDriverTransform: originFromDriverTransform)
     }
 
-    private mutating func trackingUnavailableFrame() -> RightHandPinchFrame {
-        let phase: RightHandPinchPhase = isPinching ? .ended : .unavailable
+    private mutating func trackingUnavailableFrame() -> HandPinchFrame {
+        let phase: HandPinchPhase = isPinching ? .ended : .unavailable
         isPinching = false
-        return RightHandPinchFrame(phase: phase,
-                                   midpoint: nil,
-                                   fingerDistance: nil,
-                                   originFromDriverTransform: nil)
+        return HandPinchFrame(phase: phase,
+                              midpoint: nil,
+                              fingerDistance: nil,
+                              originFromDriverTransform: nil)
+    }
+
+    private func matchesExpectedSide(_ chirality: HandAnchor.Chirality) -> Bool {
+        switch (side, chirality) {
+        case (.left, .left), (.right, .right): true
+        default: false
+        }
     }
 
     private func worldPosition(of joint: HandSkeleton.Joint,

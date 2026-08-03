@@ -13,7 +13,7 @@ enum RayTracingGeometryID: Hashable, Sendable {
 
 enum RayTracingInstanceID: Hashable, Sendable {
     case roomMesh(Int)
-    case reflectiveSphere
+    case reflectiveObject(ReflectiveObjectID)
 }
 
 enum RayTracingSceneBuildState: Sendable, Equatable {

@@ -40,7 +40,8 @@ struct RayTracingCPUHitData {
     var geometries: [RayTracingGeometryMetadata]
     var instances: [RayTracingInstanceMetadata]
 
-    static func make(roomMeshes: [MDLMesh]) throws -> RayTracingCPUHitData {
+    static func make(roomMeshes: [MDLMesh],
+                     reflectiveObjectCapacity: Int) throws -> RayTracingCPUHitData {
         var vertices: [RayTracingPackedVertex] = []
         var indices: [UInt32] = []
         var geometries: [RayTracingGeometryMetadata] = []
@@ -89,10 +90,12 @@ struct RayTracingCPUHitData {
                 materialKind: UInt32(RayTracingMaterialKind.room.rawValue)))
         }
 
-        instances.append(RayTracingInstanceMetadata(
-            geometryOffset: 0,
-            geometryCount: 0,
-            materialKind: UInt32(RayTracingMaterialKind.pureReflection.rawValue)))
+        instances.append(contentsOf: repeatElement(
+            RayTracingInstanceMetadata(
+                geometryOffset: 0,
+                geometryCount: 0,
+                materialKind: UInt32(RayTracingMaterialKind.pureReflection.rawValue)),
+            count: reflectiveObjectCapacity))
 
         return RayTracingCPUHitData(vertices: vertices,
                                     indices: indices,

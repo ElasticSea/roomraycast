@@ -6,31 +6,23 @@
 import ARKit
 import simd
 
-struct ReflectiveSpherePlacement {
-    private(set) var spawnHeadTransform: matrix_float4x4?
+nonisolated struct ReflectiveObjectPlacement {
+    private(set) var latestHeadTransform: matrix_float4x4?
 
-    @discardableResult
-    mutating func captureFirstTrackedHeadPose(from deviceAnchor: DeviceAnchor?) -> Bool {
-        guard spawnHeadTransform == nil,
-              let deviceAnchor,
+    mutating func updateTrackedHeadPose(from deviceAnchor: DeviceAnchor?) {
+        guard let deviceAnchor,
               deviceAnchor.isTracked else {
-            return false
+            return
         }
 
-        spawnHeadTransform = deviceAnchor.originFromAnchorTransform
-        return true
+        latestHeadTransform = deviceAnchor.originFromAnchorTransform
     }
 
-    @discardableResult
-    func placeSphereIfPossible(_ sphere: inout ReflectiveSphere) -> Bool {
-        guard sphere.originFromSphereTransform == nil,
-              let spawnHeadTransform else {
-            return false
-        }
+    func makeSpawnTransform() -> matrix_float4x4? {
+        guard let latestHeadTransform else { return nil }
 
-        var headFromSphereTransform = matrix_identity_float4x4
-        headFromSphereTransform.columns.3.z = -ReflectiveSphere.spawnDistance
-        sphere.originFromSphereTransform = spawnHeadTransform * headFromSphereTransform
-        return true
+        var headFromObjectTransform = matrix_identity_float4x4
+        headFromObjectTransform.columns.3.z = -ReflectiveObject.spawnDistance
+        return latestHeadTransform * headFromObjectTransform
     }
 }

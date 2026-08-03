@@ -56,8 +56,6 @@ struct ReflectiveObjectMesh {
         guard let modelMesh = asset.childObjects(of: MDLMesh.self).first as? MDLMesh else {
             throw RendererError.badVertexDescriptor
         }
-        modelMesh.addNormals(withAttributeNamed: MDLVertexAttributeNormal,
-                             creaseThreshold: 0)
         let mesh = try MTKMesh(mesh: modelMesh, device: device)
 
         let bounds = asset.boundingBox

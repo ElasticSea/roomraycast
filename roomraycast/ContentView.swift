@@ -79,6 +79,14 @@ struct ContentView: View {
                 appModel.refreshSavedAnchoredModels()
             }
         }
+        .onDisappear {
+            Task { @MainActor in
+                guard appModel.immersiveSpaceState != .closed else { return }
+                appModel.immersiveSpaceState = .inTransition
+                await dismissImmersiveSpace()
+                appModel.immersiveSpaceState = .closed
+            }
+        }
         .fileImporter(isPresented: $isImporting,
                       allowedContentTypes: [.usdz]) { result in
             Task { @MainActor in

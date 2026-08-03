@@ -22,6 +22,19 @@ struct ReflectiveSphereVaryings {
     float3 worldNormal;
 };
 
+static float3 applyObjectMaterial(float3 reflectionColor,
+                                  constant PureReflectionMaterialUniforms &material)
+{
+    float metallic = saturate(material.metallic);
+    float roughness = saturate(material.roughness);
+    float3 baseColor = saturate(material.baseColor.rgb);
+    float3 specularTint = mix(float3(1.0), baseColor, metallic);
+    float specularStrength = mix(0.55, 1.0, metallic) * (1.0 - roughness * 0.2);
+    float3 specular = reflectionColor * specularTint * specularStrength;
+    float3 diffuse = baseColor * material.diffuseContribution * 0.65;
+    return specular + diffuse;
+}
+
 vertex ReflectiveSphereVaryings reflectiveSphereVertex(
     ReflectiveSphereVertex in [[stage_in]],
     ushort ampID [[amplification_id]],
@@ -51,7 +64,9 @@ fragment float4 reflectiveSphereFragment(
     float3 chrome = mix(darkChrome, brightChrome, skyAmount);
     chrome += horizonBand * 0.35;
     chrome *= material.reflectivity;
-    return float4(chrome, 1.0);
+    chrome = mix(chrome, float3(dot(chrome, float3(0.2126, 0.7152, 0.0722))),
+                 saturate(material.roughness) * 0.65);
+    return float4(applyObjectMaterial(chrome, material), 1.0);
 }
 
 static float3 rayMissColor()
@@ -93,7 +108,8 @@ fragment float4 rayTracedReflectiveSphereFragment(
     for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
         auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
         if (intersection.type != intersection_type::triangle) {
-            return float4(rayMissColor(), 1.0);
+            return float4(applyObjectMaterial(rayMissColor() * throughput, material),
+                          1.0);
         }
 
         uint instanceIndex = intersection.instance_id;
@@ -113,9 +129,14 @@ fragment float4 rayTracedReflectiveSphereFragment(
             float2 uv2 = vertices[vertexIndex2].texCoordAndPadding.xy;
             float2 uv = uv0 * weight0 + uv1 * barycentric.x + uv2 * barycentric.y;
 
-            half4 roomColor = roomTextures[min(geometry.textureIndex, 63u)]
-                .sample(roomSampler, uv, level(0.0));
-            return float4(float3(roomColor.rgb) * throughput, 1.0);
+            uint textureIndex = min(geometry.textureIndex, 63u);
+            uint mipCount = roomTextures[textureIndex].get_num_mip_levels();
+            float maxMipLevel = float(max(mipCount, 1u) - 1u);
+            float mipLevel = saturate(material.roughness) * maxMipLevel;
+            half4 roomColor = roomTextures[textureIndex]
+                .sample(roomSampler, uv, level(mipLevel));
+            return float4(applyObjectMaterial(float3(roomColor.rgb) * throughput, material),
+                          1.0);
         }
 
         uint geometryIndex = hitInstance.geometryOffset + intersection.geometry_id;
@@ -145,5 +166,5 @@ fragment float4 rayTracedReflectiveSphereFragment(
         throughput *= material.reflectivity;
     }
 
-    return float4(throughput * rayMissColor(), 1.0);
+    return float4(applyObjectMaterial(throughput * rayMissColor(), material), 1.0);
 }

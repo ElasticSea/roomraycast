@@ -4,12 +4,36 @@
 //
 
 import simd
+import Foundation
 
 nonisolated struct PureReflectionMaterial: Sendable, Equatable {
-    let reflectivity: Float = 1
-    let roughness: Float = 0
-    let metallic: Float = 1
-    let diffuseContribution: Float = 0
+    var reflectivity: Float = 1
+    var roughness: Float = 0
+    var metallic: Float = 1
+    var diffuseContribution: Float = 0
+    var baseColor = SIMD3<Float>(repeating: 1)
+}
+
+nonisolated final class ReflectiveObjectMaterialState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var material = PureReflectionMaterial()
+
+    func snapshot() -> PureReflectionMaterial {
+        lock.lock()
+        defer { lock.unlock() }
+        return material
+    }
+
+    func set(roughness: Float,
+             metallic: Float,
+             baseColor: SIMD3<Float>) {
+        lock.lock()
+        material.roughness = min(max(roughness, 0), 1)
+        material.metallic = min(max(metallic, 0), 1)
+        material.diffuseContribution = 1 - material.metallic
+        material.baseColor = simd_clamp(baseColor, .zero, SIMD3<Float>(repeating: 1))
+        lock.unlock()
+    }
 }
 
 nonisolated struct ReflectiveObjectID: Hashable, Sendable {

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// Maintains app-wide state
 @MainActor
@@ -16,6 +17,7 @@ class AppModel {
     let roomVisibility = RoomVisibilityState()
     let reflectiveObjectSpawns = ReflectiveObjectSpawnState()
     let reflectionBounceCountState = ReflectionBounceCountState()
+    let reflectiveObjectMaterialState = ReflectiveObjectMaterialState()
 
     private var securityScopedModelURL: URL?
 
@@ -31,6 +33,15 @@ class AppModel {
     }
     var reflectionBounceCount = 5 {
         didSet { reflectionBounceCountState.set(reflectionBounceCount) }
+    }
+    var reflectiveObjectRoughness = 0.0 {
+        didSet { updateReflectiveObjectMaterial() }
+    }
+    var reflectiveObjectMetallic = 1.0 {
+        didSet { updateReflectiveObjectMaterial() }
+    }
+    var reflectiveObjectColor = Color.white {
+        didSet { updateReflectiveObjectMaterial() }
     }
     var importedModelURL: URL?
     private(set) var anchoredModelURL: URL?
@@ -67,6 +78,26 @@ class AppModel {
 
     func spawnReflectiveObject(_ kind: ReflectiveObjectKind) {
         reflectiveObjectSpawns.request(kind)
+    }
+
+    private func updateReflectiveObjectMaterial() {
+        let baseColor = rgbComponents(of: reflectiveObjectColor)
+        reflectiveObjectMaterialState.set(
+            roughness: Float(reflectiveObjectRoughness),
+            metallic: Float(reflectiveObjectMetallic),
+            baseColor: baseColor)
+    }
+
+    private func rgbComponents(of color: Color) -> SIMD3<Float> {
+        var red: CGFloat = 1
+        var green: CGFloat = 1
+        var blue: CGFloat = 1
+        var alpha: CGFloat = 1
+        UIColor(color).getRed(&red,
+                              green: &green,
+                              blue: &blue,
+                              alpha: &alpha)
+        return SIMD3<Float>(Float(red), Float(green), Float(blue))
     }
 
     func importModel(from sourceURL: URL) throws {

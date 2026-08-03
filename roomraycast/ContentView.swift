@@ -62,6 +62,30 @@ struct ContentView: View {
                     ), in: 0...10, step: 1)
                 }
 
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Object Material")
+                        Spacer()
+                        ColorPicker("Color", selection: Binding(
+                            get: { appModel.reflectiveObjectColor },
+                            set: { appModel.reflectiveObjectColor = $0 }
+                        ), supportsOpacity: false)
+                        .labelsHidden()
+                    }
+
+                    Text("Roughness: \(appModel.reflectiveObjectRoughness, specifier: "%.2f")")
+                    Slider(value: Binding(
+                        get: { appModel.reflectiveObjectRoughness },
+                        set: { appModel.reflectiveObjectRoughness = $0 }
+                    ), in: 0...1)
+
+                    Text("Metallic: \(appModel.reflectiveObjectMetallic, specifier: "%.2f")")
+                    Slider(value: Binding(
+                        get: { appModel.reflectiveObjectMetallic },
+                        set: { appModel.reflectiveObjectMetallic = $0 }
+                    ), in: 0...1)
+                }
+
                 Button("Anchor") {
                     Task { @MainActor in
                         do {

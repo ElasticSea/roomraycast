@@ -116,6 +116,7 @@ actor Renderer {
     let roomVisibility: RoomVisibilityState
     let reflectiveObjectSpawns: ReflectiveObjectSpawnState
     let reflectionBounceCountState: ReflectionBounceCountState
+    let reflectiveObjectMaterialState: ReflectiveObjectMaterialState
     let modelURL: URL
     var savedRecord: AnchoredModelRecord?
     var reflectiveObjects: [ReflectiveObject] = []
@@ -140,6 +141,7 @@ actor Renderer {
          roomVisibility: RoomVisibilityState,
          reflectiveObjectSpawns: ReflectiveObjectSpawnState,
          reflectionBounceCountState: ReflectionBounceCountState,
+         reflectiveObjectMaterialState: ReflectiveObjectMaterialState,
          restoredAnchor: AnchoredModelRecord?) {
         self.layerRenderer = layerRenderer
         self.device = layerRenderer.device
@@ -148,6 +150,7 @@ actor Renderer {
         self.roomVisibility = roomVisibility
         self.reflectiveObjectSpawns = reflectiveObjectSpawns
         self.reflectionBounceCountState = reflectionBounceCountState
+        self.reflectiveObjectMaterialState = reflectiveObjectMaterialState
         self.modelURL = modelURL
         self.savedRecord = restoredAnchor
 
@@ -235,6 +238,7 @@ actor Renderer {
         materialPointer.pointee.roughness = material.roughness
         materialPointer.pointee.metallic = material.metallic
         materialPointer.pointee.diffuseContribution = material.diffuseContribution
+        materialPointer.pointee.baseColor = SIMD4<Float>(material.baseColor, 1)
 
         self.rayTracingSettingsBuffer = self.device.makeBuffer(
             length: MemoryLayout<RayTracingSettings>.stride,
@@ -400,6 +404,7 @@ actor Renderer {
         let roomVisibility = appModel.roomVisibility
         let reflectiveObjectSpawns = appModel.reflectiveObjectSpawns
         let reflectionBounceCountState = appModel.reflectionBounceCountState
+        let reflectiveObjectMaterialState = appModel.reflectiveObjectMaterialState
         let restoredAnchor = appModel.activeAnchoredModel
         Task(executorPreference: RendererTaskExecutor.shared) {
             let renderer = Renderer(layerRenderer,
@@ -409,6 +414,7 @@ actor Renderer {
                                     roomVisibility: roomVisibility,
                                     reflectiveObjectSpawns: reflectiveObjectSpawns,
                                     reflectionBounceCountState: reflectionBounceCountState,
+                                    reflectiveObjectMaterialState: reflectiveObjectMaterialState,
                                     restoredAnchor: restoredAnchor)
             await renderer.startARSession(arSession)
             await renderer.renderLoop()
@@ -607,6 +613,15 @@ actor Renderer {
     }
 
     private func updateGameState() {
+        let material = reflectiveObjectMaterialState.snapshot()
+        let materialPointer = reflectiveMaterialBuffer.contents()
+            .bindMemory(to: PureReflectionMaterialUniforms.self, capacity: 1)
+        materialPointer.pointee.reflectivity = material.reflectivity
+        materialPointer.pointee.roughness = material.roughness
+        materialPointer.pointee.metallic = material.metallic
+        materialPointer.pointee.diffuseContribution = material.diffuseContribution
+        materialPointer.pointee.baseColor = SIMD4<Float>(material.baseColor, 1)
+
         let raySettings = rayTracingSettingsBuffer.contents()
             .bindMemory(to: RayTracingSettings.self, capacity: 1)
         raySettings.pointee.maxBounces = reflectionBounceCountState.snapshot()

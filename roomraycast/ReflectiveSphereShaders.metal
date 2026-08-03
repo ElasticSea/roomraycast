@@ -114,6 +114,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
                                   address::repeat);
     float3 throughput = float3(material.reflectivity);
     uint ignoredInstanceIndex = uniforms.rayTracingData.x;
+    float maximumSelfIntersectionDistance = settings.rayEpsilon * 2.0;
 
     uint bounceLimit = min(settings.maxBounces, 10u);
     for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
@@ -121,7 +122,8 @@ fragment float4 rayTracedReflectiveSphereFragment(
         for (uint skippedIntersection = 0;
              skippedIntersection < 16u
                  && intersection.type == intersection_type::triangle
-                 && intersection.instance_id == ignoredInstanceIndex;
+                 && intersection.instance_id == ignoredInstanceIndex
+                 && intersection.distance <= maximumSelfIntersectionDistance;
              ++skippedIntersection) {
             float advance = intersection.distance + settings.rayEpsilon;
             reflectionRay.origin += reflectionRay.direction * advance;

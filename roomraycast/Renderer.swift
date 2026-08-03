@@ -355,10 +355,36 @@ actor Renderer {
     private func restoreSavedAnchorIfAvailable() async {
         guard let savedRecord,
               let anchors = await worldTracking.allAnchors,
-              let worldAnchor = anchors.first(where: { $0.id == savedRecord.anchorID }) else {
+              let worldAnchor = anchors.first(where: { $0.id == savedRecord.anchorID }),
+              worldAnchor.isTracked else {
             return
         }
 
+        applyTrackedWorldAnchor(worldAnchor, for: savedRecord)
+    }
+
+    private func monitorSavedAnchorUpdates() async {
+        for await update in worldTracking.anchorUpdates {
+            guard !Task.isCancelled else { return }
+            guard let savedRecord,
+                  update.anchor.id == savedRecord.anchorID else {
+                continue
+            }
+
+            switch update.event {
+            case .added, .updated:
+                guard update.anchor.isTracked else { continue }
+                applyTrackedWorldAnchor(update.anchor, for: savedRecord)
+            case .removed:
+                // Keep the last valid transform instead of snapping back to the
+                // session-relative fallback while the persistent anchor is unavailable.
+                continue
+            }
+        }
+    }
+
+    private func applyTrackedWorldAnchor(_ worldAnchor: WorldAnchor,
+                                         for savedRecord: AnchoredModelRecord) {
         anchoredPlacementTransform = worldAnchor.originFromAnchorTransform
         anchoredScale = savedRecord.transform.scale
         isRayTracingRoomTransformDirty = true
@@ -418,7 +444,11 @@ actor Renderer {
                                     reflectiveObjectMaterialState: reflectiveObjectMaterialState,
                                     restoredAnchor: restoredAnchor)
             await renderer.startARSession(arSession)
+            let worldAnchorUpdateTask = Task {
+                await renderer.monitorSavedAnchorUpdates()
+            }
             await renderer.renderLoop()
+            worldAnchorUpdateTask.cancel()
         }
     }
 

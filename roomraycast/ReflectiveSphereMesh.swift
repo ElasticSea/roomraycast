@@ -25,7 +25,7 @@ enum ReflectiveSphereMesh {
         return descriptor
     }
 
-    static func make(device: MTLDevice) throws -> MTKMesh {
+    static func make(device: MTLDevice) throws -> (modelMesh: MDLMesh, metalMesh: MTKMesh) {
         let allocator = MTKMeshBufferAllocator(device: device)
         let radii = SIMD3<Float>(repeating: ReflectiveObject.radius)
         let modelMesh = MDLMesh.newEllipsoid(withRadii: radii,
@@ -46,6 +46,6 @@ enum ReflectiveSphereMesh {
         attributes[VertexAttribute.normal.rawValue].name = MDLVertexAttributeNormal
         modelMesh.vertexDescriptor = modelVertexDescriptor
 
-        return try MTKMesh(mesh: modelMesh, device: device)
+        return (modelMesh, try MTKMesh(mesh: modelMesh, device: device))
     }
 }

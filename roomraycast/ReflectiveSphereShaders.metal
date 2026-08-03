@@ -91,7 +91,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
 
     uint bounceLimit = min(settings.maxBounces, 8u);
     for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
-        auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFD);
+        auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
         if (intersection.type != intersection_type::triangle) {
             return float4(rayMissColor(), 1.0);
         }
@@ -118,10 +118,25 @@ fragment float4 rayTracedReflectiveSphereFragment(
             return float4(float3(roomColor.rgb) * throughput, 1.0);
         }
 
+        uint geometryIndex = hitInstance.geometryOffset + intersection.geometry_id;
+        RayTracingGeometry geometry = geometries[geometryIndex];
+        uint triangleIndex = geometry.indexOffset + intersection.primitive_id * 3;
+        uint vertexIndex0 = indices[triangleIndex];
+        uint vertexIndex1 = indices[triangleIndex + 1];
+        uint vertexIndex2 = indices[triangleIndex + 2];
+        float2 barycentric = intersection.triangle_barycentric_coord;
+        float weight0 = 1.0 - barycentric.x - barycentric.y;
+        float3 localNormal = vertices[vertexIndex0].normal.xyz * weight0
+            + vertices[vertexIndex1].normal.xyz * barycentric.x
+            + vertices[vertexIndex2].normal.xyz * barycentric.y;
+
         RayTracingObject hitObject = objects[instanceIndex];
         float3 hitPosition = reflectionRay.origin
             + reflectionRay.direction * intersection.distance;
-        float3 hitNormal = normalize(hitPosition - hitObject.sphereCenterAndRadius.xyz);
+        float3x3 worldToObject = float3x3(hitObject.worldToObject[0].xyz,
+                                          hitObject.worldToObject[1].xyz,
+                                          hitObject.worldToObject[2].xyz);
+        float3 hitNormal = normalize(transpose(worldToObject) * localNormal);
         if (dot(hitNormal, reflectionRay.direction) > 0.0) {
             hitNormal = -hitNormal;
         }

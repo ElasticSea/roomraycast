@@ -180,7 +180,8 @@ actor Renderer {
         do {
             let loadedModel = try Self.loadModel(device: device,
                                                  modelURL: modelURL,
-                                                 mtlVertexDescriptor: mtlVertexDescriptor)
+                                                 mtlVertexDescriptor: mtlVertexDescriptor,
+                                                 reflectiveObjectMeshes: reflectiveObjectMeshes)
             meshes = loadedModel.meshes
             modelNormalizationTransform = loadedModel.normalizationTransform
             rayTracingHitDataBuffers = try! RayTracingHitDataBuffers(device: device,
@@ -238,7 +239,7 @@ actor Renderer {
         self.rayTracingSettingsBuffer.label = "Ray Tracing Settings"
         let raySettings = self.rayTracingSettingsBuffer.contents()
             .bindMemory(to: RayTracingSettings.self, capacity: 1)
-        raySettings.pointee.maxBounces = 3
+        raySettings.pointee.maxBounces = 5
         raySettings.pointee.maxDistance = 30
         raySettings.pointee.rayEpsilon = 0.002
         raySettings.pointee.padding = 0
@@ -485,7 +486,8 @@ actor Renderer {
 
     static func loadModel(device: MTLDevice,
                           modelURL: URL,
-                          mtlVertexDescriptor: MTLVertexDescriptor) throws -> LoadedModel {
+                          mtlVertexDescriptor: MTLVertexDescriptor,
+                          reflectiveObjectMeshes: [ReflectiveObjectKind: ReflectiveObjectMesh]) throws -> LoadedModel {
         let metalAllocator = MTKMeshBufferAllocator(device: device)
         let mdlVertexDescriptor = MTKModelIOVertexDescriptorFromMetal(mtlVertexDescriptor)
 
@@ -541,6 +543,7 @@ actor Renderer {
 
         let rayTracingHitData = try RayTracingCPUHitData.make(
             roomMeshes: convertedMeshes.modelIOMeshes,
+            reflectiveObjectMeshes: reflectiveObjectMeshes,
             reflectiveObjectCapacity: ReflectiveObject.maximumCount)
         return LoadedModel(meshes: renderMeshes,
                            normalizationTransform: normalizationTransform,
@@ -671,6 +674,9 @@ actor Renderer {
             rayTracingHitDataBuffers.setObjectTransform(
                 objectTransform,
                 sphereRadius: ReflectiveObject.radius,
+                at: meshes.count + id.rawValue)
+            rayTracingHitDataBuffers.setReflectiveObjectKind(
+                kind,
                 at: meshes.count + id.rawValue)
             rayTracingScene.markDirty(.instanceAdded(instanceID))
         }

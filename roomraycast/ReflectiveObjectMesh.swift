@@ -9,12 +9,15 @@ import ModelIO
 struct ReflectiveObjectMesh {
     private static let maximumBoundingBoxDimension: Float = 0.25
 
+    let modelMesh: MDLMesh
     let mesh: MTKMesh
     let localTransform: matrix_float4x4
 
     static func makeAll(device: MTLDevice) throws -> [ReflectiveObjectKind: ReflectiveObjectMesh] {
+        let sphere = try ReflectiveSphereMesh.make(device: device)
         var result: [ReflectiveObjectKind: ReflectiveObjectMesh] = [
-            .sphere: ReflectiveObjectMesh(mesh: try ReflectiveSphereMesh.make(device: device),
+            .sphere: ReflectiveObjectMesh(modelMesh: sphere.modelMesh,
+                                          mesh: sphere.metalMesh,
                                           localTransform: matrix_identity_float4x4)
         ]
 
@@ -72,7 +75,8 @@ struct ReflectiveObjectMesh {
             * matrix4x4_translation(-center.x, -center.y, -center.z)
         let assetTransform = MDLTransform.globalTransform(with: modelMesh, atTime: 0)
 
-        return ReflectiveObjectMesh(mesh: mesh,
+        return ReflectiveObjectMesh(modelMesh: modelMesh,
+                                    mesh: mesh,
                                     localTransform: normalization * assetTransform)
     }
 }

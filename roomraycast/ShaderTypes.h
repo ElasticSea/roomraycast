@@ -65,6 +65,7 @@ typedef struct
 {
     matrix_float4x4 modelMatrix;
     vector_float4 cameraPosition;
+    vector_uint4 rayTracingData;
 } Uniforms;
 
 typedef struct

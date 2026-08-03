@@ -669,6 +669,7 @@ actor Renderer {
                                                         + alignedUniformsSize * objectIndex)
                 .bindMemory(to: Uniforms.self, capacity: 1)
             objectPointer[0].modelMatrix = reflectiveObjectTransform(for: object)
+            objectPointer[0].rayTracingData = SIMD4<UInt32>(UInt32(objectIndex), 0, 0, 0)
         }
     }
 
@@ -869,11 +870,17 @@ actor Renderer {
         for objectID in Set(movedObjectIDs) {
             guard let object = reflectiveObjects.first(where: { $0.id == objectID }) else { continue }
             let objectTransform = reflectiveObjectTransform(for: object)
+            let objectIndex = meshes.count + objectID.rawValue
+            let objectPointer = UnsafeMutableRawPointer(dynamicUniformBuffer.contents()
+                                                        + uniformBufferOffset
+                                                        + alignedUniformsSize * objectIndex)
+                .bindMemory(to: Uniforms.self, capacity: 1)
+            objectPointer[0].modelMatrix = objectTransform
             let instanceID = RayTracingInstanceID.reflectiveObject(objectID)
             rayTracingScene.setInstanceTransform(objectTransform, for: instanceID)
             rayTracingHitDataBuffers.setObjectTransform(objectTransform,
                                                         sphereRadius: ReflectiveObject.radius,
-                                                        at: meshes.count + objectID.rawValue)
+                                                        at: objectIndex)
             rayTracingScene.markDirty(.transformChanged(instanceID))
         }
 

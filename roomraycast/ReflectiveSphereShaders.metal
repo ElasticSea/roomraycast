@@ -103,10 +103,20 @@ fragment float4 rayTracedReflectiveSphereFragment(
                                   min_filter::linear,
                                   address::repeat);
     float3 throughput = float3(material.reflectivity);
+    uint ignoredInstanceIndex = uniforms.rayTracingData.x;
 
     uint bounceLimit = min(settings.maxBounces, 10u);
     for (uint bounce = 0; bounce < bounceLimit; ++bounce) {
         auto intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
+        for (uint skippedIntersection = 0;
+             skippedIntersection < 16u
+                 && intersection.type == intersection_type::triangle
+                 && intersection.instance_id == ignoredInstanceIndex;
+             ++skippedIntersection) {
+            float advance = intersection.distance + settings.rayEpsilon;
+            reflectionRay.origin += reflectionRay.direction * advance;
+            intersection = sceneIntersector.intersect(reflectionRay, scene, 0xFF);
+        }
         if (intersection.type != intersection_type::triangle) {
             return float4(applyObjectMaterial(rayMissColor(material) * throughput, material),
                           1.0);
@@ -161,6 +171,7 @@ fragment float4 rayTracedReflectiveSphereFragment(
         if (dot(hitNormal, reflectionRay.direction) > 0.0) {
             hitNormal = -hitNormal;
         }
+        ignoredInstanceIndex = instanceIndex;
         reflectionRay.origin = hitPosition + hitNormal * settings.rayEpsilon;
         reflectionRay.direction = normalize(reflect(reflectionRay.direction, hitNormal));
         throughput *= material.reflectivity;

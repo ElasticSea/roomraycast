@@ -17,7 +17,7 @@ nonisolated struct ReflectiveObjectGrabController {
     private var grabsByHand: [HandSide: GrabState] = [:]
 
     init(collisionTolerance: Float = 0.02,
-         smoothingRetention: Float = 0.99) {
+         smoothingRetention: Float = 0.8) {
         precondition(smoothingRetention >= 0 && smoothingRetention < 1)
         self.collisionTolerance = collisionTolerance
         self.smoothingRetention = smoothingRetention

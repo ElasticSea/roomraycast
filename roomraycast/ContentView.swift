@@ -54,6 +54,11 @@ struct ContentView: View {
                     }
                 }
 
+                Button("Remove All Objects", role: .destructive) {
+                    appModel.removeAllReflectiveObjects()
+                }
+                .controlSize(.small)
+
                 VStack(alignment: .leading) {
                     Text("Reflection Bounces: \(appModel.reflectionBounceCount)")
                     Slider(value: Binding(

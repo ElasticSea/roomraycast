@@ -83,6 +83,10 @@ class AppModel {
         reflectiveObjectSpawns.request(kind)
     }
 
+    func removeAllReflectiveObjects() {
+        reflectiveObjectSpawns.requestRemovalOfAll()
+    }
+
     private func updateReflectiveObjectMaterial() {
         let baseColor = rgbComponents(of: reflectiveObjectColor)
         let missColor = rgbComponents(of: reflectionMissColor)

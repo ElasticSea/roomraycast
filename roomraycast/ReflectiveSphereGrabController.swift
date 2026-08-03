@@ -45,6 +45,10 @@ nonisolated struct ReflectiveObjectGrabController {
         }
     }
 
+    mutating func cancelAllGrabs() {
+        grabsByHand.removeAll(keepingCapacity: true)
+    }
+
     private mutating func beginGrabIfPossible(midpoint: SIMD3<Float>?,
                                               originFromDriverTransform: matrix_float4x4?,
                                               hand: HandSide,

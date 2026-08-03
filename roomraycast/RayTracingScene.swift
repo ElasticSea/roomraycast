@@ -111,6 +111,10 @@ final class RayTracingScene: @unchecked Sendable {
         instanceTransforms[instanceID] = transform
     }
 
+    func removeInstanceTransform(for instanceID: RayTracingInstanceID) {
+        instanceTransforms.removeValue(forKey: instanceID)
+    }
+
     func setMaterialResources(buffer: MTLBuffer, textures: [MTLTexture]) {
         materialBuffer = buffer
         self.textures = textures

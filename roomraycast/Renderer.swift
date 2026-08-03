@@ -658,6 +658,9 @@ actor Renderer {
             .bindMemory(to: RayTracingSettings.self, capacity: 1)
         raySettings.pointee.maxBounces = reflectionBounceCountState.snapshot()
 
+        if reflectiveObjectSpawns.consumeRemovalOfAllRequest() {
+            removeAllReflectiveObjects()
+        }
         pendingReflectiveObjectKinds.append(contentsOf: reflectiveObjectSpawns.consumeAll())
         spawnPendingReflectiveObjectsIfPossible()
 
@@ -742,6 +745,18 @@ actor Renderer {
             print("[ReflectiveObjects] Maximum object count reached")
             pendingReflectiveObjectKinds.removeAll(keepingCapacity: true)
         }
+    }
+
+    private func removeAllReflectiveObjects() {
+        pendingReflectiveObjectKinds.removeAll(keepingCapacity: true)
+        reflectiveObjectGrabController.cancelAllGrabs()
+
+        for object in reflectiveObjects {
+            let instanceID = RayTracingInstanceID.reflectiveObject(object.id)
+            rayTracingScene.removeInstanceTransform(for: instanceID)
+            rayTracingScene.markDirty(.instanceRemoved(instanceID))
+        }
+        reflectiveObjects.removeAll(keepingCapacity: true)
     }
 
     private func reflectiveObjectTransform(for object: ReflectiveObject) -> matrix_float4x4 {

@@ -28,6 +28,7 @@ nonisolated enum ReflectiveObjectKind: String, CaseIterable, Identifiable, Senda
 nonisolated final class ReflectiveObjectSpawnState: @unchecked Sendable {
     private let lock = NSLock()
     private var pendingKinds: [ReflectiveObjectKind] = []
+    private var removeAllRequested = false
 
     func request(_ kind: ReflectiveObjectKind) {
         lock.lock()
@@ -41,6 +42,21 @@ nonisolated final class ReflectiveObjectSpawnState: @unchecked Sendable {
         let kinds = pendingKinds
         pendingKinds.removeAll(keepingCapacity: true)
         return kinds
+    }
+
+    func requestRemovalOfAll() {
+        lock.lock()
+        pendingKinds.removeAll(keepingCapacity: true)
+        removeAllRequested = true
+        lock.unlock()
+    }
+
+    func consumeRemovalOfAllRequest() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let requested = removeAllRequested
+        removeAllRequested = false
+        return requested
     }
 }
 
